@@ -1,0 +1,22 @@
+project_id = "zywifoacnzpnuvhjlmzj"
+
+[functions.chat]
+verify_jwt = false
+
+[functions.parse-contract]
+verify_jwt = false
+
+[functions.parse-brief]
+verify_jwt = false
+
+[functions.apply-resolution]
+verify_jwt = false
+
+[functions.enrich-social]
+verify_jwt = false
+
+[functions.generate-media-kit]
+verify_jwt = false
+
+[functions.delete-contract]
+verify_jwt = false

@@ -1,0 +1,1 @@
+ALTER TABLE public.conflicts ADD COLUMN IF NOT EXISTS resolution_note text;
