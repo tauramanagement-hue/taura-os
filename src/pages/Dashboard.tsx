@@ -44,17 +44,21 @@ const isDateInRange = (dateStr: string | null, start: Date, end: Date) => {
 const isContractActiveInPeriod = (startDate: string | null, endDate: string | null, periodStart: Date, periodEnd: Date) => {
   const s = startDate ? new Date(startDate) : new Date(0);
   const e = endDate ? new Date(endDate) : new Date(9999, 11, 31);
-  // Overlap: contract starts before period ends AND contract ends after period starts
   return s <= periodEnd && e >= periodStart;
 };
+
+// Tipi di accordo diretto agenzia-talent (NON deal brand)
+const AGENCY_AGREEMENT_TYPES = ["esclusiva", "accordo", "mandato", "rappresentanza", "agenzia", "gestione"];
+const isBrandDeal = (type: string) =>
+  !AGENCY_AGREEMENT_TYPES.some(t => (type || "").toLowerCase().includes(t));
 
 const DashboardPage = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { labels } = useAgencyContext();
   const [period, setPeriod] = useState<Period>("YTD");
-  const [stats, setStats] = useState({ athletes: 0, contracts: 0, revenue: 0, pipeline: 0, pipelineDeals: 0, conflicts: 0 });
-  const [prevStats, setPrevStats] = useState({ revenue: 0, contracts: 0, pipeline: 0 });
+  const [stats, setStats] = useState({ roster: 0, underContract: 0, dealCount: 0, revenue: 0, pipeline: 0, pipelineDeals: 0, conflicts: 0 });
+  const [prevStats, setPrevStats] = useState({ revenue: 0, dealCount: 0, pipeline: 0, roster: 0 });
   const [deadlines, setDeadlines] = useState<any[]>([]);
   const [deals, setDeals] = useState<any[]>([]);
   const [briefings, setBriefings] = useState<any[]>([]);
@@ -79,37 +83,73 @@ const DashboardPage = () => {
       supabase.from("notifications").select("id, title, message, severity, type, related_entity_type, is_read").eq("is_read", false).order("created_at", { ascending: false }).limit(4),
     ]);
 
-    const athletes = athletesRes.data || [];
     const allContracts = contractsRes.data || [];
     const allDeals = dealsRes.data || [];
     const conflicts = conflictsRes.data || [];
     const notifications = notifRes.data || [];
 
-    const filteredContracts = allContracts.filter((c: any) => isContractActiveInPeriod(c.start_date, c.end_date, range.start, range.end));
-    const filteredDeals = allDeals.filter((d: any) => isDateInRange(d.created_at || d.updated_at, range.start, range.end));
+    // Separa contratti brand-talent (deal) da accordi diretti agenzia-talent (mandati)
+    const brandContracts = allContracts.filter((c: any) => isBrandDeal(c.contract_type));
+    const agencyContracts = allContracts.filter((c: any) => !isBrandDeal(c.contract_type));
 
-    const activeFiltered = filteredContracts.filter((c: any) => c.status === "active");
-    const signedFiltered = filteredDeals.filter((d: any) => d.stage === "signed");
-    const totalRevenue = activeFiltered.reduce((sum: number, c: any) => sum + (c.value || 0), 0)
-      + signedFiltered.reduce((sum: number, d: any) => sum + (d.value || 0), 0);
-    const pipelineValue = filteredDeals.reduce((sum: number, d: any) => sum + (d.value || 0), 0);
+    // Filtra per il periodo corrente
+    const periodBrandDeals = brandContracts.filter((c: any) =>
+      isContractActiveInPeriod(c.start_date, c.end_date, range.start, range.end)
+    );
+    const periodAgencyContracts = agencyContracts.filter((c: any) =>
+      isContractActiveInPeriod(c.start_date, c.end_date, range.start, range.end)
+    );
+
+    // Monte Contratti = solo deal brand-talent attivi nel periodo
+    const revenue = periodBrandDeals
+      .filter((c: any) => c.status === "active" || !c.status)
+      .reduce((sum: number, c: any) => sum + (c.value || 0), 0);
+
+    // Pipeline CRM = deal non firmati nel periodo, valore ponderato per probabilità
+    const periodPipelineDeals = allDeals.filter((d: any) => {
+      const dateOk = isDateInRange(d.updated_at || d.created_at, range.start, range.end);
+      return dateOk && d.stage !== "signed";
+    });
+    const pipelineValue = periodPipelineDeals.reduce(
+      (sum: number, d: any) => sum + ((d.value || 0) * (d.probability || 50) / 100), 0
+    );
+
+    // Roster = talent unici con mandato agenzia attivo + talent in deal brand nel periodo
+    const agencyAthleteIds = new Set(periodAgencyContracts.map((c: any) => c.athlete_id).filter(Boolean));
+    const brandAthleteIds = new Set(periodBrandDeals.map((c: any) => c.athlete_id).filter(Boolean));
+    const rosterIds = new Set([...agencyAthleteIds, ...brandAthleteIds]);
 
     setStats({
-      athletes: athletes.length,
-      contracts: filteredContracts.length,
-      revenue: totalRevenue,
+      roster: rosterIds.size,
+      underContract: agencyAthleteIds.size,
+      dealCount: periodBrandDeals.length,
+      revenue,
       pipeline: pipelineValue,
-      pipelineDeals: filteredDeals.length,
+      pipelineDeals: periodPipelineDeals.length,
       conflicts: conflicts.length,
     });
 
+    // Periodo precedente per confronto
     const prevRange = getPrevPeriodRange(period);
-    const prevContracts = allContracts.filter((c: any) => isContractActiveInPeriod(c.start_date, c.end_date, prevRange.start, prevRange.end));
-    const prevDeals = allDeals.filter((d: any) => isDateInRange(d.created_at || d.updated_at, prevRange.start, prevRange.end));
-    const prevRevenue = prevContracts.filter((c: any) => c.status === "active").reduce((sum: number, c: any) => sum + (c.value || 0), 0)
-      + prevDeals.filter((d: any) => d.stage === "signed").reduce((sum: number, d: any) => sum + (d.value || 0), 0);
-    const prevPipeline = prevDeals.reduce((sum: number, d: any) => sum + (d.value || 0), 0);
-    setPrevStats({ revenue: prevRevenue, contracts: prevContracts.length, pipeline: prevPipeline });
+    const prevBrandDeals = brandContracts.filter((c: any) =>
+      isContractActiveInPeriod(c.start_date, c.end_date, prevRange.start, prevRange.end)
+    );
+    const prevAgencyContracts = agencyContracts.filter((c: any) =>
+      isContractActiveInPeriod(c.start_date, c.end_date, prevRange.start, prevRange.end)
+    );
+    const prevRevenue = prevBrandDeals
+      .filter((c: any) => c.status === "active" || !c.status)
+      .reduce((sum: number, c: any) => sum + (c.value || 0), 0);
+    const prevPipelineDeals = allDeals.filter((d: any) =>
+      isDateInRange(d.updated_at || d.created_at, prevRange.start, prevRange.end) && d.stage !== "signed"
+    );
+    const prevPipeline = prevPipelineDeals.reduce(
+      (sum: number, d: any) => sum + ((d.value || 0) * (d.probability || 50) / 100), 0
+    );
+    const prevAgencyIds = new Set(prevAgencyContracts.map((c: any) => c.athlete_id).filter(Boolean));
+    const prevBrandIds = new Set(prevBrandDeals.map((c: any) => c.athlete_id).filter(Boolean));
+    const prevRoster = new Set([...prevAgencyIds, ...prevBrandIds]).size;
+    setPrevStats({ revenue: prevRevenue, dealCount: prevBrandDeals.length, pipeline: prevPipeline, roster: prevRoster });
 
     const monthLabels = ["Gen", "Feb", "Mar", "Apr", "Mag", "Giu", "Lug", "Ago", "Set", "Ott", "Nov", "Dic"];
     const monthMap: Record<string, number> = {};
@@ -128,7 +168,8 @@ const DashboardPage = () => {
       }
     }
 
-    allContracts.forEach((c: any) => {
+    // Grafico mensile: solo deal brand-talent (non accordi agenzia)
+    brandContracts.forEach((c: any) => {
       if (!c.start_date || !c.value) return;
       const key = c.start_date.substring(0, 7);
       if (key in monthMap) monthMap[key] += Number(c.value);
@@ -141,18 +182,21 @@ const DashboardPage = () => {
     setMonthlyRevenue(mr);
 
     const today = new Date();
+    // Scadenze: mostra mandati agenzia-talent in scadenza (le più critiche) + deal brand in scadenza
     const dl = allContracts
       .map((c: any) => ({
         ...c,
         athlete_name: c.athletes?.full_name || "N/A",
         days: Math.ceil((new Date(c.end_date).getTime() - today.getTime()) / (1000 * 60 * 60 * 24)),
+        isAgencyContract: !isBrandDeal(c.contract_type),
       }))
       .filter((c: any) => c.days >= 0 && c.days <= 120)
-      .sort((a: any, b: any) => a.days - b.days)
+      .sort((a: any, b: any) => (a.isAgencyContract === b.isAgencyContract ? a.days - b.days : a.isAgencyContract ? -1 : 1))
       .slice(0, 5);
     setDeadlines(dl);
 
-    setDeals(filteredDeals.slice(0, 4).map((d: any) => ({ ...d, athlete_name: d.athletes?.full_name || "N/A" })));
+    // Pipeline widget: deal CRM in corso (non firmati)
+    setDeals(periodPipelineDeals.slice(0, 4).map((d: any) => ({ ...d, athlete_name: d.athletes?.full_name || "N/A" })));
 
     const br: any[] = [];
     conflicts.slice(0, 2).forEach((c: any) => {
@@ -198,33 +242,34 @@ const DashboardPage = () => {
   };
 
   const revTrend = calcTrend(stats.revenue, prevStats.revenue);
-  const contractTrend = calcTrend(stats.contracts, prevStats.contracts);
+  const dealTrend = calcTrend(stats.dealCount, prevStats.dealCount);
   const pipelineTrend = calcTrend(stats.pipeline, prevStats.pipeline);
+  const rosterTrend = calcTrend(stats.roster, prevStats.roster);
 
   const statCards = [
     {
-      label: `MONTE CONTRATTI ${period}`,
+      label: `MONTE DEAL ${period}`,
       value: fmt(stats.revenue),
-      subLabel: `${stats.contracts} contratti`,
+      subLabel: `${stats.dealCount} deal attivi`,
       delta: revTrend ? (revTrend.up ? revTrend.pct : -revTrend.pct) : undefined,
     },
     {
-      label: "CONTRATTI",
-      value: String(stats.contracts),
-      subLabel: "attivi nel periodo",
-      delta: contractTrend ? (contractTrend.up ? contractTrend.pct : -contractTrend.pct) : undefined,
+      label: "DEAL",
+      value: String(stats.dealCount),
+      subLabel: "contratti brand attivi",
+      delta: dealTrend ? (dealTrend.up ? dealTrend.pct : -dealTrend.pct) : undefined,
     },
     {
       label: "PIPELINE",
       value: fmt(stats.pipeline),
-      subLabel: `${stats.pipelineDeals} deal`,
+      subLabel: `${stats.pipelineDeals} deal · val. atteso`,
       delta: pipelineTrend ? (pipelineTrend.up ? pipelineTrend.pct : -pipelineTrend.pct) : undefined,
     },
     {
       label: "ROSTER",
-      value: String(stats.athletes),
-      subLabel: "talent attivi",
-      delta: undefined,
+      value: String(stats.roster),
+      subLabel: `${stats.underContract} sotto mandato`,
+      delta: rosterTrend ? (rosterTrend.up ? rosterTrend.pct : -rosterTrend.pct) : undefined,
     },
     {
       label: "CONFLITTI",
@@ -400,7 +445,7 @@ const DashboardPage = () => {
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 }}>
             <div>
               <div style={{ fontFamily: "var(--font-display)", fontSize: "var(--text-sm)", fontWeight: 600, letterSpacing: "-0.02em", color: "hsl(var(--foreground))" }}>
-                Monte Contratti
+                Monte Deal
               </div>
               <div style={{ fontFamily: "var(--font-mono)", fontSize: "var(--text-xs)", color: "hsl(var(--muted-foreground))", marginTop: 2 }}>
                 {fmt(stats.revenue)}
@@ -530,10 +575,10 @@ const DashboardPage = () => {
             borderBottom: deals.length > 0 ? "1px solid hsl(var(--border) / 0.7)" : "none",
           }}>
             <span style={{ fontFamily: "var(--font-display)", fontSize: "var(--text-sm)", fontWeight: 600, letterSpacing: "-0.02em" }}>
-              Pipeline attiva
+              Pipeline CRM
             </span>
             <span style={{ fontSize: "var(--text-xs)", color: "hsl(var(--muted-foreground))", fontFamily: "var(--font-mono)" }}>
-              {stats.pipelineDeals} deal · {fmt(stats.pipeline)}
+              {stats.pipelineDeals} deal · atteso {fmt(stats.pipeline)}
             </span>
           </div>
           {deals.length === 0 && !loading ? (

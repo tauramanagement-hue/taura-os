@@ -374,12 +374,12 @@ const ContractsPage = () => {
         </div>
       ) : (
         <div className="bg-card rounded-xl border border-border overflow-hidden">
-          <div className="grid grid-cols-[1.3fr_1fr_0.8fr_0.7fr_0.5fr_0.5fr_0.8fr] gap-3 px-5 py-3 bg-secondary border-b border-border items-center">
+          <div className="grid grid-cols-[1.3fr_1fr_0.8fr_0.7fr_0.5fr_0.5fr_0.8fr] gap-3 px-5 py-3 bg-secondary border-b border-border items-center text-left">
             {[
               { k: "athlete", l: "Atleta" }, { k: "brand", l: "Brand" }, { k: "", l: "Tipo" },
               { k: "value", l: "Valore" }, { k: "", l: "Stato" }, { k: "conflicts", l: "Conflitti" }, { k: "end_date", l: "Scadenza" },
             ].map(h => (
-              <span key={h.l} onClick={h.k ? () => toggleSort(h.k) : undefined} className={`label-caps text-muted-foreground ${h.k ? "cursor-pointer hover:text-foreground" : ""}`}>
+              <span key={h.l} onClick={h.k ? () => toggleSort(h.k) : undefined} className={`label-caps text-muted-foreground text-left ${h.k ? "cursor-pointer hover:text-foreground" : ""}`}>
                 {h.l} {sortCol === h.k ? (sortAsc ? "↑" : "↓") : ""}
               </span>
             ))}
@@ -388,13 +388,13 @@ const ContractsPage = () => {
             const st = getStatusLabel(c.status, c.contract_type);
             const days = daysRemaining(c.end_date);
             return (
-              <div key={c.id} onClick={() => navigate(`/contracts/${c.id}`)} className="grid grid-cols-[1.3fr_1fr_0.8fr_0.7fr_0.5fr_0.5fr_0.8fr] gap-3 px-5 py-3 border-b border-border last:border-b-0 hover:bg-secondary/50 cursor-pointer transition-colors items-center">
-                <span className="text-[13px] font-semibold text-foreground truncate">{c.athlete_name}</span>
-                <span className="text-[13px] text-foreground truncate">{c.brand}</span>
-                <span className="text-[13px] text-muted-foreground truncate">{capitalizeType(c.contract_type)}</span>
-                <span className="text-[13px] font-bold text-foreground font-mono">{c.value ? `€${c.value.toLocaleString("it-IT")}` : "—"}</span>
+              <div key={c.id} onClick={() => navigate(`/contracts/${c.id}`)} className="grid grid-cols-[1.3fr_1fr_0.8fr_0.7fr_0.5fr_0.5fr_0.8fr] gap-3 px-5 py-3 border-b border-border last:border-b-0 hover:bg-secondary/50 cursor-pointer transition-colors items-center text-left">
+                <span className="text-[13px] font-semibold text-foreground truncate text-left">{c.athlete_name}</span>
+                <span className="text-[13px] text-foreground truncate text-left">{c.brand}</span>
+                <span className="text-[13px] text-muted-foreground truncate text-left">{capitalizeType(c.contract_type)}</span>
+                <span className="text-[13px] font-bold text-foreground font-mono text-left">{c.value ? `€${c.value.toLocaleString("it-IT")}` : "—"}</span>
                 <Pill variant={st.variant}>{st.text}</Pill>
-                <span className="text-[12px] font-mono">
+                <span className="text-[12px] font-mono text-left">
                   {c.conflicts_count > 0 ? <span className="text-destructive font-bold">⚠ {c.conflicts_count}</span> : <span className="text-muted-foreground">—</span>}
                 </span>
                 <div className="flex items-center gap-2 justify-between">
