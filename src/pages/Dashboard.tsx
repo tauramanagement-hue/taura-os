@@ -260,12 +260,6 @@ const DashboardPage = () => {
       delta: dealTrend ? (dealTrend.up ? dealTrend.pct : -dealTrend.pct) : undefined,
     },
     {
-      label: "PIPELINE",
-      value: fmt(stats.pipeline),
-      subLabel: `${stats.pipelineDeals} deal · val. atteso`,
-      delta: pipelineTrend ? (pipelineTrend.up ? pipelineTrend.pct : -pipelineTrend.pct) : undefined,
-    },
-    {
       label: "ROSTER",
       value: String(stats.roster),
       subLabel: `${stats.underContract} sotto mandato`,
@@ -359,7 +353,7 @@ const DashboardPage = () => {
       </div>
 
       {/* Stat cards — no sparklines */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 8, marginBottom: 16 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, marginBottom: 16 }}>
         {statCards.map((s, i) => (
           <div key={i} className="taura-card" style={{ padding: "14px 16px" }}>
             <div className="label-overline" style={{ marginBottom: 10 }}>{s.label}</div>
