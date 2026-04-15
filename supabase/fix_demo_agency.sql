@@ -21,10 +21,10 @@ ON CONFLICT (id) DO UPDATE SET
   onboarding_completed = EXCLUDED.onboarding_completed;
 
 -- 2) Collega TUTTI i profili che hanno email demo (o il tuo) all'agenzia
---    Sostituisci 'demo@taura.io' con la tua email se usi un altro account
+--    Sostituisci 'os@tauramanagement.it' con la tua email se usi un altro account
 UPDATE public.profiles
 SET agency_id = '6fac7ab8-4baa-4da2-9447-e3dfeffdbe8c'
-WHERE email = 'demo@taura.io';   -- <-- Cambia qui se usi un'altra email
+WHERE email = 'os@tauramanagement.it';   -- <-- Cambia qui se usi un'altra email
 
 -- 3) Verifica: quanti record vedi per l'agenzia?
 --    (Esegui come controllo dopo aver fatto login)
