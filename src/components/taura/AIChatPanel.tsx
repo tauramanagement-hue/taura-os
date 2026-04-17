@@ -45,6 +45,13 @@ export const AIChatPanel = ({ collapsed, onToggle }: { collapsed: boolean; onTog
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages]);
 
+  // Persist a message to the chat_messages table
+  const persistMessage = async (role: "user" | "assistant", content: string) => {
+    try {
+      await supabase.from("chat_messages").insert({ role, content });
+    } catch { /* best-effort, non-blocking */ }
+  };
+
   const sendMessage = async (text: string) => {
     if (!text.trim() || isLoading) return;
     const userMsg: Msg = { role: "user", content: text.trim() };
@@ -52,12 +59,13 @@ export const AIChatPanel = ({ collapsed, onToggle }: { collapsed: boolean; onTog
     setInput("");
     setIsLoading(true);
 
+    // Persist user message to DB
+    persistMessage("user", text.trim());
+
     let assistantSoFar = "";
     const allMessages = [...messages, userMsg];
 
     try {
-      // getSession() con autoRefreshToken: true gestisce il refresh automaticamente.
-      // Non chiamare refreshSession() esplicitamente: se fallisce, cancella la sessione da localStorage.
       const { data: sessionData } = await supabase.auth.getSession();
       const session = sessionData.session;
 
@@ -152,13 +160,16 @@ export const AIChatPanel = ({ collapsed, onToggle }: { collapsed: boolean; onTog
         }
       }
 
-      // Attach model info to completed assistant message
-      if (tier && assistantSoFar) {
-        setMessages(prev => prev.map((m, i) =>
-          i === prev.length - 1 && m.role === "assistant"
-            ? { ...m, modelTier: tier, modelName }
-            : m
-        ));
+      // Persist assistant response + attach model info
+      if (assistantSoFar) {
+        persistMessage("assistant", assistantSoFar);
+        if (tier) {
+          setMessages(prev => prev.map((m, i) =>
+            i === prev.length - 1 && m.role === "assistant"
+              ? { ...m, modelTier: tier, modelName }
+              : m
+          ));
+        }
       }
     } catch (e: any) {
       setMessages(prev => [...prev, { role: "assistant", content: `⚠️ ${e.message || "Errore"}` }]);

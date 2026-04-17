@@ -24,16 +24,23 @@ const SettingsPage = () => {
   const [showInvite, setShowInvite] = useState(false);
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState("agent");
+  // Commissioni
+  const [commType, setCommType] = useState<"pct" | "fixed">("pct");
+  const [commValue, setCommValue] = useState<string>("15");
+  const [savingComm, setSavingComm] = useState(false);
 
   useEffect(() => {
     if (!user) return;
     const load = async () => {
-      const { data: p } = await supabase.from("profiles").select("full_name, email, role, agency_id, agencies(id, name, sport_sector, plan)").eq("id", user.id).single();
+      const { data: p } = await supabase.from("profiles").select("full_name, email, role, agency_id, agencies(id, name, sport_sector, plan, default_commission_type, default_commission_value)").eq("id", user.id).single();
       if (p) {
         setProfile(p);
-        setAgency((p as any).agencies);
-        setAgencyNameValue((p as any).agencies?.name || "");
+        const ag = (p as any).agencies;
+        setAgency(ag);
+        setAgencyNameValue(ag?.name || "");
         setUserNameValue(p.full_name || "");
+        if (ag?.default_commission_type) setCommType(ag.default_commission_type === "fixed" ? "fixed" : "pct");
+        if (ag?.default_commission_value != null) setCommValue(String(ag.default_commission_value));
         // Fetch team
         if (p.agency_id) {
           const { data: teamData } = await supabase.from("profiles").select("id, full_name, email, role").eq("agency_id", p.agency_id);
@@ -71,6 +78,21 @@ const SettingsPage = () => {
     if (error) { toast.error(error.message); return; }
     toast.success("Password aggiornata");
     setNewPassword(""); setConfirmPassword(""); setShowPassword(false);
+  };
+
+  const saveCommission = async () => {
+    if (!agency?.id) return;
+    const val = parseFloat(commValue);
+    if (isNaN(val) || val < 0) { toast.error("Valore commissione non valido"); return; }
+    setSavingComm(true);
+    const { error } = await supabase.from("agencies").update({
+      default_commission_type: commType,
+      default_commission_value: val,
+    }).eq("id", agency.id);
+    setSavingComm(false);
+    if (error) { toast.error("Errore salvataggio"); return; }
+    setAgency({ ...agency, default_commission_type: commType, default_commission_value: val });
+    toast.success(`Commissione default: ${commType === "pct" ? `${val}%` : `€${val.toLocaleString("it-IT")}`}`);
   };
 
   const exportCSV = async (type: "contracts" | "athletes") => {
@@ -152,6 +174,52 @@ const SettingsPage = () => {
             ) : (
               <button onClick={() => setShowPassword(true)} className="px-3.5 py-2.5 rounded-lg border border-border bg-secondary text-muted-foreground text-sm hover:border-primary/30 transition-colors cursor-pointer w-full text-left">Cambia password →</button>
             )}
+          </div>
+        </div>
+      </section>
+
+      {/* Commissioni */}
+      <section className="bg-card rounded-xl p-6 border border-border mb-4">
+        <h2 className="text-sm font-bold text-foreground mb-1">Commissioni</h2>
+        <p className="text-[11px] text-muted-foreground mb-4">Default applicato a tutti i deal. Puoi sovrascriverlo per singolo contratto dalla chat AI.</p>
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center gap-3">
+            <label className="flex items-center gap-1.5 cursor-pointer">
+              <input type="radio" name="commType" checked={commType === "pct"} onChange={() => setCommType("pct")} className="accent-primary w-3.5 h-3.5" />
+              <span className="text-[12px] text-foreground font-medium">Percentuale (%)</span>
+            </label>
+            <label className="flex items-center gap-1.5 cursor-pointer">
+              <input type="radio" name="commType" checked={commType === "fixed"} onChange={() => setCommType("fixed")} className="accent-primary w-3.5 h-3.5" />
+              <span className="text-[12px] text-foreground font-medium">Importo fisso (€)</span>
+            </label>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1">
+              <input
+                type="number"
+                min="0"
+                step={commType === "pct" ? "0.5" : "100"}
+                value={commValue}
+                onChange={e => setCommValue(e.target.value)}
+                className="w-full px-3.5 py-2.5 rounded-lg border border-border bg-secondary text-foreground text-sm outline-none focus:border-primary pr-10"
+              />
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground text-xs font-medium">
+                {commType === "pct" ? "%" : "€"}
+              </span>
+            </div>
+            <button
+              onClick={saveCommission}
+              disabled={savingComm}
+              className="px-4 py-2.5 bg-primary text-primary-foreground rounded-lg text-[11px] font-bold cursor-pointer hover:opacity-90 disabled:opacity-50 transition-opacity"
+            >
+              {savingComm ? "Salvo..." : "Salva"}
+            </button>
+          </div>
+          <div className="text-[10px] text-muted-foreground mt-0.5">
+            {commType === "pct"
+              ? `Su un deal da €100.000, la commissione sarà €${((parseFloat(commValue) || 0) / 100 * 100000).toLocaleString("it-IT")}`
+              : `Importo fisso di €${parseFloat(commValue || "0").toLocaleString("it-IT")} per ogni deal`
+            }
           </div>
         </div>
       </section>

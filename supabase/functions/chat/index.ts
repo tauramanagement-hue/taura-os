@@ -94,6 +94,55 @@ const detectDeliverableStatusIntent = (
   return null;
 };
 
+interface CommissionIntent {
+  type: "pct" | "fixed";
+  value: number;
+}
+
+const detectCommissionIntent = (msg: string): CommissionIntent | null => {
+  const t = normalizeText(msg);
+  if (!/commission/.test(t)) return null;
+  if (msg.includes("?")) return null;
+  // Percentage: "12%", "12 percento", "al 15%"
+  const pctMatch = t.match(/(\d+(?:[.,]\d+)?)\s*(?:%|percento|pct)/);
+  if (pctMatch) {
+    const val = parseFloat(pctMatch[1].replace(",", "."));
+    if (!isNaN(val) && val > 0 && val <= 100) return { type: "pct", value: val };
+  }
+  // Fixed: "12000 euro", "12k", "€15000", "15.000 euro"
+  const fixedMatch = t.match(/(\d[\d.]*(?:,\d+)?)\s*(k\b|euro|eur)/);
+  if (fixedMatch) {
+    const raw = fixedMatch[1].replace(/\./g, "").replace(",", ".");
+    let val = parseFloat(raw);
+    if (!isNaN(val)) {
+      if (fixedMatch[2] === "k") val *= 1000;
+      if (val > 0) return { type: "fixed", value: val };
+    }
+  }
+  return null;
+};
+
+async function generateQueryEmbedding(text: string, apiKey: string): Promise<number[] | null> {
+  for (const model of ["text-embedding-004", "embedding-001"]) {
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:embedContent?key=${apiKey}`;
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model: `models/${model}`, content: { parts: [{ text }] } }),
+      });
+      if (res.status === 404) continue;
+      if (!res.ok) return null;
+      const data = await res.json();
+      const values = data.embedding?.values;
+      if (values?.length) return values;
+    } catch {
+      // try next model
+    }
+  }
+  return null;
+}
+
 // Helper: stream a plain text message as SSE without calling any LLM
 function streamDirectText(text: string, headers: Record<string, string>): Response {
   const encoder = new TextEncoder();
@@ -264,6 +313,71 @@ Deno.serve(async (req: Request) => {
       }
     }
 
+    // ── Commission update fast-path ──
+    const commIntent = latestUserMsg ? detectCommissionIntent(latestUserMsg) : null;
+    if (commIntent) {
+      try {
+        const authHeader = req.headers.get("authorization") || "";
+        const token = authHeader.replace("Bearer ", "");
+        const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+        const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+        const adminClient = createClient(supabaseUrl, supabaseServiceKey);
+        const { data: { user } } = await adminClient.auth.getUser(token);
+
+        if (user) {
+          const { data: profile } = await adminClient.from("profiles").select("agency_id").eq("id", user.id).single();
+          if (profile?.agency_id) {
+            const agencyId = profile.agency_id;
+            const normalizedMsg = normalizeText(latestUserMsg);
+
+            const { data: contracts } = await adminClient
+              .from("contracts")
+              .select("id, brand, athletes(full_name), commission_type, commission_value")
+              .eq("agency_id", agencyId);
+
+            if (contracts) {
+              const matched = (contracts as Array<{ id: string; brand: string; athletes: { full_name?: string } | null; commission_type: string | null; commission_value: number | null }>).filter((c) => {
+                const brandNorm = normalizeText(c.brand || "");
+                const athleteNorm = normalizeText(c.athletes?.full_name || "");
+                const brandTokens = brandNorm.split(" ").filter((t) => t.length > 2);
+                const athleteTokens = athleteNorm.split(" ").filter((t) => t.length > 2);
+                return brandTokens.some((t) => normalizedMsg.includes(t)) || athleteTokens.some((t) => normalizedMsg.includes(t));
+              });
+
+              if (matched.length === 0) {
+                return streamDirectText(
+                  "Non ho trovato contratti corrispondenti. Specifica atleta e/o brand (es. *\"commissione Sofia Marchetti × Zalando al 12%\"*).",
+                  corsHeaders,
+                );
+              } else if (matched.length > 5) {
+                return streamDirectText(
+                  `Il filtro corrisponde a **${matched.length} contratti**. Specifica atleta e/o brand.`,
+                  corsHeaders,
+                );
+              } else {
+                const { error: updateErr } = await adminClient
+                  .from("contracts")
+                  .update({ commission_type: commIntent.type, commission_value: commIntent.value })
+                  .in("id", matched.map((c) => c.id));
+
+                if (!updateErr) {
+                  const label = commIntent.type === "pct"
+                    ? `${commIntent.value}%`
+                    : `€${commIntent.value.toLocaleString("it-IT")}`;
+                  const lines = matched.map((c) => `• **${c.athletes?.full_name || "?"}** × **${c.brand}**`).join("\n");
+                  console.log(`[chat] commission update: ${matched.length} contracts → ${commIntent.type}=${commIntent.value}`);
+                  return streamDirectText(`✅ Commissione aggiornata a **${label}** per:\n\n${lines}`, corsHeaders);
+                }
+              }
+            }
+          }
+        }
+      } catch (commErr) {
+        console.error("commission-path error:", commErr);
+        // Fall through to normal path
+      }
+    }
+
     let contextBlock = "";
     let agencyPlan = "free";
     try {
@@ -338,6 +452,58 @@ Deno.serve(async (req: Request) => {
             return `[${idx + 1}/${total}] ${d.athletes?.full_name || "?"} × ${d.campaigns?.brand || "?"} | ${d.content_type} | Data: ${d.scheduled_date || "?"} | Approvato:${d.content_approved ? "✓" : "✗"} | Brief: ${brief}`;
           };
 
+          // Contract clause search: fetch detailed clauses for relevant contracts
+          const CLAUSE_KEYWORDS = /clausol|esclusiv|penal|obbligh|diritti.immagin|non.compete|rinnov|rescission|ingaggio|mandato|accordo|compenso|royalt|termini|condizioni/i;
+          let semanticBlock = "";
+          if (CLAUSE_KEYWORDS.test(latestUserMsg)) {
+            try {
+              // Build keyword tokens from the message for matching
+              const msgTokens = normalizeText(latestUserMsg).split(" ").filter((t) => t.length > 3);
+              // Fetch all contracts with full clause data
+              const { data: clauseContracts } = await adminClient
+                .from("contracts")
+                .select("id, brand, start_date, end_date, exclusivity_category, exclusivity_territory, obligations, social_obligations, penalties, renewal_clause, image_rights, ai_extracted_clauses, athlete_id, athletes(full_name)")
+                .eq("agency_id", agencyId);
+
+              if (clauseContracts && clauseContracts.length > 0) {
+                type ContractRow = { id: string; brand: string; start_date?: string; end_date?: string; exclusivity_category?: string; exclusivity_territory?: string; obligations?: string; social_obligations?: string; penalties?: string; renewal_clause?: string; image_rights?: string; ai_extracted_clauses?: Record<string, unknown>; athletes?: { full_name?: string } };
+                // Score contracts by keyword match
+                const scored = (clauseContracts as ContractRow[]).map((c) => {
+                  const searchText = normalizeText([
+                    c.brand, c.athletes?.full_name, c.exclusivity_category,
+                    c.obligations, c.penalties, c.renewal_clause,
+                    JSON.stringify(c.ai_extracted_clauses || {})
+                  ].filter(Boolean).join(" "));
+                  const score = msgTokens.filter((t) => searchText.includes(t)).length;
+                  return { c, score };
+                }).filter(({ score }) => score > 0)
+                  .sort((a, b) => b.score - a.score)
+                  .slice(0, 5);
+
+                if (scored.length > 0) {
+                  const lines = scored.map(({ c }) => {
+                    const clauses = c.ai_extracted_clauses || {};
+                    const parts = [
+                      `**${c.athletes?.full_name || "?"}** × **${c.brand}** (${c.start_date || "?"} → ${c.end_date || "?"})`,
+                      c.exclusivity_category ? `Esclusività: ${c.exclusivity_category} / ${c.exclusivity_territory || "N/D"}` : null,
+                      c.obligations ? `Obblighi: ${c.obligations}` : null,
+                      c.social_obligations ? `Social: ${c.social_obligations}` : null,
+                      c.penalties ? `Penali: ${c.penalties}` : null,
+                      c.renewal_clause ? `Rinnovo: ${c.renewal_clause}` : null,
+                      c.image_rights ? `Diritti immagine: ${c.image_rights}` : null,
+                      Object.keys(clauses).length > 0 ? `Clausole AI: ${JSON.stringify(clauses)}` : null,
+                    ].filter(Boolean).join("\n  ");
+                    return parts;
+                  }).join("\n---\n");
+                  semanticBlock = `\nCLAUSOLE CONTRATTI RILEVANTI:\n${lines}`;
+                  console.log(`[chat] clause search: ${scored.length} contracts enriched`);
+                }
+              }
+            } catch (semErr) {
+              console.error("clause search error:", semErr);
+            }
+          }
+
           contextBlock = `${updateResultBlock}
 --- DATI AGENZIA (${today}) ---
 Agenzia: ${(profile as { agencies?: { name?: string; sport_sector?: string } }).agencies?.name || "N/D"} | Settore: ${(profile as { agencies?: { sport_sector?: string } }).agencies?.sport_sector || "N/D"}
@@ -357,6 +523,7 @@ ${unpostedDeliverables.map((d: any, idx: number) => formatDeliverable(d, idx, un
 
 DELIVERABLE PUBBLICATI (${postedDeliverables.length} totali):
 ${postedDeliverables.map((d: { athletes?: { full_name?: string }; campaigns?: { name?: string; brand?: string }; content_type?: string; scheduled_date?: string }) => `- ${d.athletes?.full_name || "?"} × ${d.campaigns?.brand || "?"} (${d.campaigns?.name || "?"}) | ${d.content_type} | ${d.scheduled_date || "?"}`).join("\n") || "Nessuno"}
+${semanticBlock}
 ---`;
 
           // Final safety: truncate context block if still too large

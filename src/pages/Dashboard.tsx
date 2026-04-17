@@ -57,8 +57,8 @@ const DashboardPage = () => {
   const { user } = useAuth();
   const { labels } = useAgencyContext();
   const [period, setPeriod] = useState<Period>("YTD");
-  const [stats, setStats] = useState({ roster: 0, underContract: 0, dealCount: 0, revenue: 0, pipeline: 0, pipelineDeals: 0, conflicts: 0 });
-  const [prevStats, setPrevStats] = useState({ revenue: 0, dealCount: 0, pipeline: 0, roster: 0 });
+  const [stats, setStats] = useState({ roster: 0, underContract: 0, dealCount: 0, revenue: 0, pipeline: 0, pipelineDeals: 0, conflicts: 0, commissions: 0 });
+  const [prevStats, setPrevStats] = useState({ revenue: 0, dealCount: 0, pipeline: 0, roster: 0, commissions: 0 });
   const [deadlines, setDeadlines] = useState<any[]>([]);
   const [deals, setDeals] = useState<any[]>([]);
   const [briefings, setBriefings] = useState<any[]>([]);
@@ -75,18 +75,28 @@ const DashboardPage = () => {
     setLoading(true);
     const range = getPeriodRange(period);
 
-    const [athletesRes, contractsRes, dealsRes, conflictsRes, notifRes] = await Promise.all([
+    const [athletesRes, contractsRes, dealsRes, conflictsRes, notifRes, agencyCommRes] = await Promise.all([
       supabase.from("athletes").select("id").eq("status", "active"),
-      supabase.from("contracts").select("id, brand, value, end_date, start_date, status, athlete_id, athletes(full_name)").order("end_date"),
+      supabase.from("contracts").select("id, brand, contract_type, value, end_date, start_date, status, athlete_id, commission_type, commission_value, athletes(full_name)").order("end_date"),
       supabase.from("deals").select("id, brand, athlete_id, value, stage, probability, created_at, updated_at, athletes(full_name)").order("probability", { ascending: false }),
       supabase.from("conflicts").select("id, description, severity, status").eq("status", "open"),
       supabase.from("notifications").select("id, title, message, severity, type, related_entity_type, is_read").eq("is_read", false).order("created_at", { ascending: false }).limit(4),
+      supabase.from("profiles").select("agencies(default_commission_type, default_commission_value)").eq("id", user?.id || "").single(),
     ]);
 
     const allContracts = contractsRes.data || [];
     const allDeals = dealsRes.data || [];
     const conflicts = conflictsRes.data || [];
     const notifications = notifRes.data || [];
+    const agencyComm = (agencyCommRes.data as any)?.agencies;
+    const defaultCommType: string = agencyComm?.default_commission_type || "pct";
+    const defaultCommValue: number = agencyComm?.default_commission_value ?? 15;
+
+    const calcCommission = (c: any) => {
+      const type = c.commission_type || defaultCommType;
+      const val = c.commission_value ?? defaultCommValue;
+      return type === "fixed" ? val : (c.value || 0) * val / 100;
+    };
 
     // Separa contratti brand-talent (deal) da accordi diretti agenzia-talent (mandati)
     const brandContracts = allContracts.filter((c: any) => isBrandDeal(c.contract_type));
@@ -100,10 +110,10 @@ const DashboardPage = () => {
       isContractActiveInPeriod(c.start_date, c.end_date, range.start, range.end)
     );
 
-    // Monte Contratti = solo deal brand-talent attivi nel periodo
-    const revenue = periodBrandDeals
-      .filter((c: any) => c.status === "active" || !c.status)
-      .reduce((sum: number, c: any) => sum + (c.value || 0), 0);
+    // Monte Deal = solo deal brand-talent attivi nel periodo
+    const activeBrandDeals = periodBrandDeals.filter((c: any) => c.status === "active" || !c.status);
+    const revenue = activeBrandDeals.reduce((sum: number, c: any) => sum + (c.value || 0), 0);
+    const totalCommissions = activeBrandDeals.reduce((sum: number, c: any) => sum + calcCommission(c), 0);
 
     // Pipeline CRM = deal non firmati nel periodo, valore ponderato per probabilità
     const periodPipelineDeals = allDeals.filter((d: any) => {
@@ -127,6 +137,7 @@ const DashboardPage = () => {
       pipeline: pipelineValue,
       pipelineDeals: periodPipelineDeals.length,
       conflicts: conflicts.length,
+      commissions: totalCommissions,
     });
 
     // Periodo precedente per confronto
@@ -137,9 +148,9 @@ const DashboardPage = () => {
     const prevAgencyContracts = agencyContracts.filter((c: any) =>
       isContractActiveInPeriod(c.start_date, c.end_date, prevRange.start, prevRange.end)
     );
-    const prevRevenue = prevBrandDeals
-      .filter((c: any) => c.status === "active" || !c.status)
-      .reduce((sum: number, c: any) => sum + (c.value || 0), 0);
+    const prevActiveBrandDeals = prevBrandDeals.filter((c: any) => c.status === "active" || !c.status);
+    const prevRevenue = prevActiveBrandDeals.reduce((sum: number, c: any) => sum + (c.value || 0), 0);
+    const prevCommissions = prevActiveBrandDeals.reduce((sum: number, c: any) => sum + calcCommission(c), 0);
     const prevPipelineDeals = allDeals.filter((d: any) =>
       isDateInRange(d.updated_at || d.created_at, prevRange.start, prevRange.end) && d.stage !== "signed"
     );
@@ -149,7 +160,7 @@ const DashboardPage = () => {
     const prevAgencyIds = new Set(prevAgencyContracts.map((c: any) => c.athlete_id).filter(Boolean));
     const prevBrandIds = new Set(prevBrandDeals.map((c: any) => c.athlete_id).filter(Boolean));
     const prevRoster = new Set([...prevAgencyIds, ...prevBrandIds]).size;
-    setPrevStats({ revenue: prevRevenue, dealCount: prevBrandDeals.length, pipeline: prevPipeline, roster: prevRoster });
+    setPrevStats({ revenue: prevRevenue, dealCount: prevBrandDeals.length, pipeline: prevPipeline, roster: prevRoster, commissions: prevCommissions });
 
     const monthLabels = ["Gen", "Feb", "Mar", "Apr", "Mag", "Giu", "Lug", "Ago", "Set", "Ott", "Nov", "Dic"];
     const monthMap: Record<string, number> = {};
@@ -245,6 +256,7 @@ const DashboardPage = () => {
   const dealTrend = calcTrend(stats.dealCount, prevStats.dealCount);
   const pipelineTrend = calcTrend(stats.pipeline, prevStats.pipeline);
   const rosterTrend = calcTrend(stats.roster, prevStats.roster);
+  const commTrend = calcTrend(stats.commissions, prevStats.commissions);
 
   const statCards = [
     {
@@ -264,6 +276,12 @@ const DashboardPage = () => {
       value: String(stats.roster),
       subLabel: `${stats.underContract} sotto mandato`,
       delta: rosterTrend ? (rosterTrend.up ? rosterTrend.pct : -rosterTrend.pct) : undefined,
+    },
+    {
+      label: "COMMISSIONI",
+      value: fmt(stats.commissions),
+      subLabel: `${stats.dealCount} deal · ${period}`,
+      delta: commTrend ? (commTrend.up ? commTrend.pct : -commTrend.pct) : undefined,
     },
     {
       label: "CONFLITTI",
@@ -353,7 +371,7 @@ const DashboardPage = () => {
       </div>
 
       {/* Stat cards — no sparklines */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, marginBottom: 16 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 8, marginBottom: 16 }}>
         {statCards.map((s, i) => (
           <div key={i} className="taura-card" style={{ padding: "14px 16px" }}>
             <div className="label-overline" style={{ marginBottom: 10 }}>{s.label}</div>
