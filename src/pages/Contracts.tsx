@@ -398,10 +398,10 @@ const ContractsPage = () => {
                   {c.conflicts_count > 0 ? <span className="text-destructive font-bold">⚠ {c.conflicts_count}</span> : <span className="text-muted-foreground">—</span>}
                 </span>
                 <div className="flex items-center gap-2 justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="text-[12px] text-muted-foreground font-mono">{new Date(c.end_date).toLocaleDateString("it-IT")}</span>
-                    {days <= 30 && days > 0 && <span className="text-[10px] font-bold text-destructive">{days}gg</span>}
-                    {days <= 0 && <span className="text-[10px] font-bold text-muted-foreground">—</span>}
+                  <div className="flex flex-col items-start gap-0.5">
+                    <span className={`text-[12px] font-mono ${days <= 30 && days > 0 ? "text-foreground font-semibold" : "text-muted-foreground"}`}>{new Date(c.end_date).toLocaleDateString("it-IT")}</span>
+                    {days <= 30 && days > 0 && <span className="text-[9px] font-bold text-destructive bg-destructive/10 px-1.5 py-0.5 rounded-full leading-none">{days}gg</span>}
+                    {days <= 0 && <span className="text-[9px] text-muted-foreground">scaduto</span>}
                   </div>
                   <button
                     onClick={e => {

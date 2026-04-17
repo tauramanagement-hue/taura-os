@@ -3,6 +3,8 @@ import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Pill, SeverityBadge } from "@/components/taura/ui-primitives";
 import { Calendar, Filter, ChevronRight } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import rehypeSanitize from "rehype-sanitize";
 
 interface Deadline {
   id: string;
@@ -290,15 +292,19 @@ Rispondi con: 1) Cosa è richiesto 2) Criticità eventuali 3) Consigli operativi
                 </div>
               </div>
 
-              <div className="text-[12px] text-muted-foreground leading-relaxed whitespace-pre-wrap">
+              <div className="text-[12px] text-muted-foreground leading-relaxed">
                 {briefLoading && !aiBrief ? (
                   <div className="flex gap-1 py-4 justify-center">
                     <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
                     <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" style={{ animationDelay: "0.2s" }} />
                     <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" style={{ animationDelay: "0.4s" }} />
                   </div>
+                ) : aiBrief ? (
+                  <div className="[&_strong]:text-foreground [&_strong]:font-semibold [&_h1]:text-foreground [&_h1]:font-bold [&_h1]:text-sm [&_h1]:mb-2 [&_h2]:text-foreground [&_h2]:font-semibold [&_h2]:text-[12px] [&_h2]:mb-1.5 [&_h3]:text-foreground [&_h3]:font-semibold [&_h3]:text-[11px] [&_h3]:mb-1 [&_ul]:pl-3 [&_ul]:space-y-0.5 [&_ol]:pl-3 [&_ol]:space-y-0.5 [&_li]:leading-relaxed [&_p]:mb-2 [&_p:last-child]:mb-0">
+                    <ReactMarkdown rehypePlugins={[rehypeSanitize]}>{aiBrief}</ReactMarkdown>
+                  </div>
                 ) : (
-                  aiBrief || "Clicca una scadenza per generare il brief AI."
+                  <span className="text-muted-foreground/60">Clicca una scadenza per generare il brief AI.</span>
                 )}
               </div>
 

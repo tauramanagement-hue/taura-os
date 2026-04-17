@@ -102,12 +102,12 @@ const DashboardPage = () => {
     const brandContracts = allContracts.filter((c: any) => isBrandDeal(c.contract_type));
     const agencyContracts = allContracts.filter((c: any) => !isBrandDeal(c.contract_type));
 
-    // Filtra per il periodo corrente
+    // Filtra per il periodo corrente: un contratto appartiene al periodo in cui è iniziato
     const periodBrandDeals = brandContracts.filter((c: any) =>
-      isContractActiveInPeriod(c.start_date, c.end_date, range.start, range.end)
+      isDateInRange(c.start_date, range.start, range.end)
     );
     const periodAgencyContracts = agencyContracts.filter((c: any) =>
-      isContractActiveInPeriod(c.start_date, c.end_date, range.start, range.end)
+      isDateInRange(c.start_date, range.start, range.end)
     );
 
     // Monte Deal = solo deal brand-talent attivi nel periodo
@@ -143,10 +143,10 @@ const DashboardPage = () => {
     // Periodo precedente per confronto
     const prevRange = getPrevPeriodRange(period);
     const prevBrandDeals = brandContracts.filter((c: any) =>
-      isContractActiveInPeriod(c.start_date, c.end_date, prevRange.start, prevRange.end)
+      isDateInRange(c.start_date, prevRange.start, prevRange.end)
     );
     const prevAgencyContracts = agencyContracts.filter((c: any) =>
-      isContractActiveInPeriod(c.start_date, c.end_date, prevRange.start, prevRange.end)
+      isDateInRange(c.start_date, prevRange.start, prevRange.end)
     );
     const prevActiveBrandDeals = prevBrandDeals.filter((c: any) => c.status === "active" || !c.status);
     const prevRevenue = prevActiveBrandDeals.reduce((sum: number, c: any) => sum + (c.value || 0), 0);
@@ -262,14 +262,14 @@ const DashboardPage = () => {
     {
       label: `MONTE DEAL ${period}`,
       value: fmt(stats.revenue),
-      subLabel: `${stats.dealCount} deal attivi`,
+      subLabel: `${stats.dealCount} deal firmati`,
       delta: revTrend ? (revTrend.up ? revTrend.pct : -revTrend.pct) : undefined,
     },
     {
-      label: "DEAL",
-      value: String(stats.dealCount),
-      subLabel: "contratti brand attivi",
-      delta: dealTrend ? (dealTrend.up ? dealTrend.pct : -dealTrend.pct) : undefined,
+      label: "PIPELINE",
+      value: fmt(stats.pipeline),
+      subLabel: `${stats.pipelineDeals} deal in corso`,
+      delta: pipelineTrend ? (pipelineTrend.up ? pipelineTrend.pct : -pipelineTrend.pct) : undefined,
     },
     {
       label: "ROSTER",
@@ -282,12 +282,6 @@ const DashboardPage = () => {
       value: fmt(stats.commissions),
       subLabel: `${stats.dealCount} deal · ${period}`,
       delta: commTrend ? (commTrend.up ? commTrend.pct : -commTrend.pct) : undefined,
-    },
-    {
-      label: "CONFLITTI",
-      value: String(stats.conflicts),
-      subLabel: stats.conflicts > 0 ? "aperti" : "nessuno",
-      delta: undefined,
     },
   ];
 
@@ -371,9 +365,9 @@ const DashboardPage = () => {
       </div>
 
       {/* Stat cards — no sparklines */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 8, marginBottom: 16 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 16 }}>
         {statCards.map((s, i) => (
-          <div key={i} className="taura-card" style={{ padding: "14px 16px" }}>
+          <div key={i} className="taura-card" style={{ padding: "18px 20px" }}>
             <div className="label-overline" style={{ marginBottom: 10 }}>{s.label}</div>
             <div className="stat-value" style={{ color: "hsl(var(--foreground))", marginBottom: 6 }}>
               {s.value}

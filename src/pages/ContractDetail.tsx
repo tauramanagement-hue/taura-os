@@ -53,6 +53,19 @@ const clauseTagColor: Record<string, string> = {
   rinnovo: "bg-taura-purple/15 text-taura-purple border-taura-purple/20",
 };
 
+function formatClauseValue(raw: unknown): string {
+  if (Array.isArray(raw)) {
+    return raw.map((v) => `• ${typeof v === "object" ? JSON.stringify(v) : v}`).join("\n");
+  }
+  if (typeof raw === "object" && raw !== null) {
+    return Object.entries(raw as Record<string, unknown>)
+      .filter(([, v]) => v != null && v !== "")
+      .map(([k, v]) => `${k.replace(/_/g, " ")}: ${Array.isArray(v) ? v.join(", ") : v}`)
+      .join("\n");
+  }
+  return String(raw);
+}
+
 function getClauseColor(type: string): string {
   const lower = type.toLowerCase();
   for (const [key, val] of Object.entries(clauseTagColor)) {
@@ -162,15 +175,15 @@ const ContractDetail = () => {
 
     for (const [key, label] of Object.entries(keyMap)) {
       if (raw[key] !== undefined && raw[key] !== null && raw[key] !== "") {
-        const val = typeof raw[key] === "object" ? JSON.stringify(raw[key], null, 2) : String(raw[key]);
-        result.push({ type: label, value: val });
+        const val = formatClauseValue(raw[key]);
+        if (val && val !== "null" && val !== "undefined") result.push({ type: label, value: val });
       }
     }
 
     // Add any remaining keys not in keyMap
     for (const key of Object.keys(raw)) {
       if (key in keyMap || key === "clauses" || key === "is_group_contract" || key === "athletes_detected" || key === "raw_summary") continue;
-      const val = typeof raw[key] === "object" ? JSON.stringify(raw[key]) : String(raw[key]);
+      const val = formatClauseValue(raw[key]);
       if (val && val !== "null" && val !== "undefined") {
         result.push({ type: key.replace(/_/g, " ").replace(/\b\w/g, l => l.toUpperCase()), value: val });
       }

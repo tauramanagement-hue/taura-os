@@ -479,32 +479,22 @@ const CampaignsPage = () => {
                         {c.brief_file_url && <span className="text-taura-blue">Brief</span>}
                       </div>
                       {total > 0 && (
-                        <div className="mt-1.5">
-                          <div className="flex items-center gap-2 mb-1">
-                            <div className="flex-1 h-2 rounded-full overflow-hidden bg-secondary relative">
-                              <div className="absolute inset-0 flex">
-                                <div className="bg-primary transition-all rounded-l-full" style={{ width: `${postedPct}%` }} />
-                                <div className="bg-taura-green transition-all" style={{ width: `${approvedPct - postedPct > 0 ? approvedPct - postedPct : 0}%` }} />
-                              </div>
+                        <div className="mt-2 space-y-1.5">
+                          <div className="flex items-center gap-2">
+                            <span className="text-[9px] text-muted-foreground w-[64px] shrink-0">Approvaz.</span>
+                            <div className="flex-1 h-1.5 rounded-full bg-secondary overflow-hidden">
+                              <div className="h-full bg-taura-green rounded-full transition-all" style={{ width: `${approvedPct}%` }} />
                             </div>
-                            <span className="text-[10px] font-bold font-mono text-foreground shrink-0">
-                              {Math.round(postedPct)}%
-                            </span>
+                            <span className="text-[9px] font-bold font-mono text-foreground w-7 text-right shrink-0">{Math.round(approvedPct)}%</span>
                           </div>
-                          <div className="flex gap-3 text-[9px]">
-                            <span className="flex items-center gap-1">
-                              <span className="w-1.5 h-1.5 rounded-full bg-primary inline-block" />
-                              <span className="text-muted-foreground">{posted} pubblicati</span>
-                            </span>
-                            <span className="flex items-center gap-1">
-                              <span className="w-1.5 h-1.5 rounded-full bg-taura-green inline-block" />
-                              <span className="text-muted-foreground">{approved - posted > 0 ? approved - posted : 0} approvati</span>
-                            </span>
-                            <span className="flex items-center gap-1">
-                              <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/30 inline-block" />
-                              <span className="text-muted-foreground">{missing} da fare</span>
-                            </span>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[9px] text-muted-foreground w-[64px] shrink-0">Pubbl.</span>
+                            <div className="flex-1 h-1.5 rounded-full bg-secondary overflow-hidden">
+                              <div className="h-full bg-primary rounded-full transition-all" style={{ width: `${postedPct}%` }} />
+                            </div>
+                            <span className="text-[9px] font-bold font-mono text-foreground w-7 text-right shrink-0">{Math.round(postedPct)}%</span>
                           </div>
+                          <div className="text-[9px] text-muted-foreground">{posted}/{total} post · {approved} approvati · {missing} da fare</div>
                         </div>
                       )}
                     </div>

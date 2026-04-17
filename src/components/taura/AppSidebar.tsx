@@ -10,7 +10,7 @@ import {
   Users,
   FileText,
   Clock,
-  BarChart3,
+  Package,
   Calendar,
   Settings,
   Bell,
@@ -43,7 +43,7 @@ export const AppSidebar = () => {
     { id: "/athletes", icon: Users, label: isSport ? "Atleti" : labels.sidebarRoster, show: true },
     { id: "/contracts", icon: FileText, label: "Contratti", show: true },
     { id: "/deadlines", icon: Clock, label: "Scadenze", show: true },
-    { id: "/reports", icon: BarChart3, label: "Report", show: true },
+    { id: "/proof-package", icon: Package, label: "Proof Package", show: true },
     ...(isTalent ? [{ id: "/calendar", icon: Calendar, label: "Calendario", show: true }] : []),
   ];
 

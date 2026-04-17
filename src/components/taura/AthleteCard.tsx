@@ -50,8 +50,8 @@ const AthleteCard = ({ athlete, onDelete }: { athlete: Athlete; onDelete: (id: s
           {sportEmoji[a.sport] || "🏅"}
         </div>
         <div className="flex-1 min-w-0">
-          <div className="text-sm font-bold text-foreground group-hover:text-primary transition-colors truncate">{a.full_name}</div>
-          <div className="text-[11px] text-taura-text3 truncate">{a.sport}{a.category ? ` • ${a.category}` : ""}</div>
+          <div className="text-sm font-bold text-foreground group-hover:text-primary transition-colors break-words leading-tight">{a.full_name}</div>
+          <div className="text-[11px] text-taura-text3">{a.sport}{a.category ? ` • ${a.category}` : ""}</div>
         </div>
         <div className="flex items-center gap-2">
           <Pill variant={a.status === "active" ? "green" : "muted"}>

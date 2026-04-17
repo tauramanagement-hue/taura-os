@@ -22,6 +22,7 @@ import Calendar from "./pages/Calendar";
 import Alerts from "./pages/Alerts";
 import Reports from "./pages/Reports";
 import ReportMonteContratti from "./pages/ReportMonteContratti";
+import ProofPackage from "./pages/ProofPackage";
 import Settings from "./pages/Settings";
 import Transfers from "./pages/Transfers";
 import Mandates from "./pages/Mandates";
@@ -69,6 +70,7 @@ const App = () => (
               <Route path="/reports" element={<Reports />} />
               <Route path="/reports/monte-contratti" element={<ReportMonteContratti />} />
               <Route path="/portfolio" element={<ReportMonteContratti />} />
+              <Route path="/proof-package" element={<ProofPackage />} />
               <Route path="/settings" element={<Settings />} />
             </Route>
 
