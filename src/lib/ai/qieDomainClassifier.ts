@@ -8,7 +8,7 @@
  * uses entities + matched_rules to decide routing + complexity.
  */
 
-import type { SystemContext } from "./contextBuilder";
+import type { SystemContext } from "./contextBuilder.ts";
 
 export type QIEDomain =
   | "roster_overview"

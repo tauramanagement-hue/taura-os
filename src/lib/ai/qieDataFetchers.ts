@@ -16,9 +16,9 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { QIEClassification, QIEDomain, ExtractedEntities } from "./qieDomainClassifier";
-import type { SystemContext, RosterAthleteStat } from "./contextBuilder";
-import { isAgencyMandate } from "./contextBuilder";
+import type { QIEClassification, QIEDomain, ExtractedEntities } from "./qieDomainClassifier.ts";
+import type { SystemContext, RosterAthleteStat } from "./contextBuilder.ts";
+import { isAgencyMandate } from "./contextBuilder.ts";
 
 export type DataQuality = "full" | "partial" | "insufficient";
 

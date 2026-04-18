@@ -11,7 +11,7 @@
  *  - modelNameForLevel(level)
  *  - tokenCount(text)                        (words × 1.3 per spec)
  */
-import type { QIEClassification } from "./qieDomainClassifier";
+import type { QIEClassification } from "./qieDomainClassifier.ts";
 
 export type ModelLevel = "L1" | "L2" | "L3";
 export type DataQuality = "full" | "partial" | "insufficient";
