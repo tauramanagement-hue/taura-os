@@ -7,8 +7,23 @@ import { useAuth } from "@/hooks/useAuth";
 import { useAgencyContext } from "@/hooks/useAgencyContext";
 import { sha256Hex, getFileExt } from "@/lib/fileHash";
 import { InstagramIcon, TikTokIcon, YouTubeIcon } from "@/components/taura/SocialIcons";
+import {
+  ConfirmActionCard,
+  type ConfirmationPayload,
+  type ActionPayload,
+} from "@/components/taura/ConfirmActionCard";
 
-type Msg = { role: "user" | "assistant"; content: string; modelTier?: string; modelName?: string };
+type Msg =
+  | { role: "user" | "assistant"; content: string; modelTier?: string; modelName?: string }
+  | {
+      role: "confirm";
+      message: string;
+      confirmation: ConfirmationPayload;
+      action_payload: ActionPayload;
+      dismissed?: boolean;
+    }
+  | { role: "error"; content: string }
+  | { role: "typing" };
 
 const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/chat`;
 
@@ -45,11 +60,23 @@ export const AIChatPanel = ({ collapsed, onToggle }: { collapsed: boolean; onTog
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages]);
 
-  // Persist a message to the chat_messages table
-  const persistMessage = async (role: "user" | "assistant", content: string) => {
-    try {
-      await supabase.from("chat_messages").insert({ role, content });
-    } catch { /* best-effort, non-blocking */ }
+  // ── Context size guard ────────────────────────────────────────────────────
+  // Keeps API payload small: if history exceeds 15 messages, summarise the
+  // oldest turns client-side (no AI call) and keep only the 5 most recent.
+  const pruneHistory = (msgs: Msg[]): { role: string; content: string }[] => {
+    const chatMsgs = msgs.filter(
+      m => m.role === "user" || m.role === "assistant"
+    ) as { role: "user" | "assistant"; content: string }[];
+    if (chatMsgs.length <= 15) return chatMsgs;
+    const oldest = chatMsgs.slice(0, chatMsgs.length - 5);
+    const recent = chatMsgs.slice(chatMsgs.length - 5);
+    const summary = oldest
+      .map(m => `${m.role === "user" ? "U" : "A"}: ${m.content.slice(0, 80)}`)
+      .join(" | ");
+    return [
+      { role: "assistant", content: `Riepilogo conversazione: ${summary}` },
+      ...recent,
+    ];
   };
 
   const sendMessage = async (text: string) => {
@@ -59,43 +86,86 @@ export const AIChatPanel = ({ collapsed, onToggle }: { collapsed: boolean; onTog
     setInput("");
     setIsLoading(true);
 
-    // Persist user message to DB
-    persistMessage("user", text.trim());
+    // Insert typing indicator into the message list
+    setMessages(prev => [...prev, { role: "typing" } as Msg]);
 
     let assistantSoFar = "";
     const allMessages = [...messages, userMsg];
+
+    // Build the (possibly pruned) history for the API call
+    const historyForApi = pruneHistory(allMessages);
 
     try {
       const { data: sessionData } = await supabase.auth.getSession();
       const session = sessionData.session;
 
       if (!session?.access_token) {
-        setMessages(prev => [...prev, { role: "assistant", content: "⚠️ Sessione scaduta. Effettua di nuovo il login." }]);
-        setIsLoading(false);
+        // Roll back the optimistic user message then show the expiry notice
+        setMessages(prev => {
+          const withoutTyping = prev.filter(m => m.role !== "typing");
+          const cleaned = withoutTyping[withoutTyping.length - 1]?.role === "user"
+            ? withoutTyping.slice(0, -1)
+            : withoutTyping;
+          return [...cleaned, { role: "error" as const, content: "Sessione scaduta. Effettua di nuovo il login." }];
+        });
         return;
       }
 
-      const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/chat`,
-        {
+      // ── Fetch with single auto-retry on 5xx / network failure ─────────────
+      const doFetch = () =>
+        fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/chat`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
             "Authorization": `Bearer ${session.access_token}`,
             "apikey": import.meta.env.VITE_SUPABASE_ANON_KEY ?? "",
           },
-          body: JSON.stringify({
-            messages: allMessages.map(m => ({ role: m.role, content: m.content })),
-          }),
+          body: JSON.stringify({ messages: historyForApi }),
+        });
+
+      let response: Response;
+      try {
+        response = await doFetch();
+      } catch {
+        // Network error — wait 2s and retry once
+        await new Promise(r => setTimeout(r, 2000));
+        response = await doFetch();
+      }
+
+      // Retry once on server error (5xx)
+      if (response.status >= 500) {
+        await new Promise(r => setTimeout(r, 2000));
+        try {
+          response = await doFetch();
+        } catch {
+          // second attempt also failed — fall through to error handling below
         }
-      );
+      }
 
       if (!response.ok || !response.body) {
         const errData = await response.json().catch(() => ({}));
         const msg = response.status === 401
-          ? "⚠️ Sessione scaduta. Effettua di nuovo il login."
-          : (errData.error || "Errore di connessione.");
+          ? "Sessione scaduta. Effettua di nuovo il login."
+          : (errData.error || "Errore di connessione. Riprova tra qualche secondo.");
         throw new Error(msg);
+      }
+
+      // Handle JSON confirmation payload (non-streaming action response)
+      const contentType = response.headers.get("content-type") ?? "";
+      if (contentType.includes("application/json")) {
+        const json = await response.json();
+        if (json.requires_confirmation) {
+          setMessages(prev => [
+            ...prev.filter(m => m.role !== "typing"),
+            {
+              role: "confirm" as const,
+              message: json.message ?? "Confermi l'azione?",
+              confirmation: json.confirmation,
+              action_payload: json.action_payload,
+            },
+          ]);
+          return;
+        }
       }
 
       const tier = response.headers.get("X-Model-Tier") ?? "";
@@ -146,11 +216,15 @@ export const AIChatPanel = ({ collapsed, onToggle }: { collapsed: boolean; onTog
             if (content) {
               assistantSoFar += content;
               setMessages(prev => {
-                const last = prev[prev.length - 1];
-                if (last?.role === "assistant" && prev.length > 1 && prev[prev.length - 2]?.role === "user") {
-                  return prev.map((m, i) => i === prev.length - 1 ? { ...m, content: assistantSoFar } : m);
+                // Remove any typing indicator before appending/updating assistant text
+                const withoutTyping = prev.filter(m => m.role !== "typing");
+                const last = withoutTyping[withoutTyping.length - 1];
+                if (last?.role === "assistant") {
+                  return withoutTyping.map((m, i) =>
+                    i === withoutTyping.length - 1 ? { ...m, content: assistantSoFar } : m
+                  );
                 }
-                return [...prev, { role: "assistant", content: assistantSoFar }];
+                return [...withoutTyping, { role: "assistant", content: assistantSoFar }];
               });
             }
           } catch {
@@ -160,21 +234,108 @@ export const AIChatPanel = ({ collapsed, onToggle }: { collapsed: boolean; onTog
         }
       }
 
-      // Persist assistant response + attach model info
-      if (assistantSoFar) {
-        persistMessage("assistant", assistantSoFar);
-        if (tier) {
-          setMessages(prev => prev.map((m, i) =>
-            i === prev.length - 1 && m.role === "assistant"
-              ? { ...m, modelTier: tier, modelName }
-              : m
-          ));
+      // Attach model info to the last assistant message
+      if (assistantSoFar && tier) {
+        setMessages(prev => prev.map((m, i) =>
+          i === prev.length - 1 && m.role === "assistant"
+            ? { ...m, modelTier: tier, modelName }
+            : m
+        ));
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Errore imprevisto";
+      // Roll back optimistic user message if nothing streamed; show amber error
+      setMessages(prev => {
+        const withoutTyping = prev.filter(m => m.role !== "typing");
+        const cleaned = assistantSoFar
+          ? withoutTyping
+          : withoutTyping[withoutTyping.length - 1]?.role === "user"
+            ? withoutTyping.slice(0, -1)
+            : withoutTyping;
+        return [...cleaned, { role: "error" as const, content: msg }];
+      });
+    } finally {
+      // Strip any leftover typing indicator and unlock input
+      setMessages(prev => prev.filter(m => m.role !== "typing"));
+      setIsLoading(false);
+    }
+  };
+
+  // ── AI Write Action confirmation ────────────────────────────────────────
+  const handleConfirmAction = async (actionPayload: ActionPayload) => {
+    // Dismiss the confirmation card immediately
+    setMessages(prev => prev.map(m =>
+      m.role === "confirm" && !m.dismissed ? { ...m, dismissed: true } : m
+    ));
+    setIsLoading(true);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const session = sessionData.session;
+      if (!session?.access_token) {
+        setMessages(prev => [...prev, { role: "assistant" as const, content: "⚠️ Sessione scaduta. Effettua di nuovo il login." }]);
+        return;
+      }
+      const response = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/chat`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${session.access_token}`,
+            "apikey": import.meta.env.VITE_SUPABASE_ANON_KEY ?? "",
+          },
+          body: JSON.stringify({
+            messages,
+            execute_confirmed_action: true,
+            action_payload: actionPayload,
+          }),
+        }
+      );
+      if (!response.ok || !response.body) throw new Error("Errore nell'esecuzione dell'azione.");
+
+      // Stream the result text
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let resultText = "";
+      let buffer = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let nl: number;
+        while ((nl = buffer.indexOf("\n")) !== -1) {
+          const line = buffer.slice(0, nl).replace(/\r$/, "");
+          buffer = buffer.slice(nl + 1);
+          if (!line.startsWith("data: ")) continue;
+          const js = line.slice(6).trim();
+          if (js === "[DONE]") break;
+          try {
+            const parsed = JSON.parse(js);
+            const chunk = parsed.choices?.[0]?.delta?.content ?? "";
+            if (chunk) {
+              resultText += chunk;
+              setMessages(prev => {
+                const last = prev[prev.length - 1];
+                if (last?.role === "assistant") return prev.map((m, i) => i === prev.length - 1 ? { ...m, content: resultText } : m);
+                return [...prev, { role: "assistant" as const, content: resultText }];
+              });
+            }
+          } catch { /* ignore parse errors */ }
         }
       }
-    } catch (e: any) {
-      setMessages(prev => [...prev, { role: "assistant", content: `⚠️ ${e.message || "Errore"}` }]);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Errore";
+      setMessages(prev => [...prev, { role: "assistant" as const, content: `⚠️ ${msg}` }]);
+    } finally {
+      setIsLoading(false);
     }
-    setIsLoading(false);
+  };
+
+  const handleCancelAction = () => {
+    setMessages(prev => prev.map(m =>
+      m.role === "confirm" && !m.dismissed ? { ...m, dismissed: true } : m
+    ));
+    setMessages(prev => [...prev, { role: "assistant" as const, content: "↩️ Azione annullata." }]);
   };
 
   const [pendingConfirmation, setPendingConfirmation] = useState<{
@@ -501,8 +662,65 @@ export const AIChatPanel = ({ collapsed, onToggle }: { collapsed: boolean; onTog
         }}
       >
         {messages.map((m, i) => (
-          <div key={i} style={{ display: "flex", justifyContent: m.role === "user" ? "flex-end" : "flex-start" }}>
-            {m.role === "user" ? (
+          <div
+            key={i}
+            style={{
+              display: "flex",
+              justifyContent: m.role === "user" ? "flex-end" : "flex-start",
+            }}
+          >
+            {m.role === "confirm" && !m.dismissed ? (
+              <ConfirmActionCard
+                message={m.message}
+                confirmation={m.confirmation}
+                action_payload={m.action_payload}
+                onConfirm={handleConfirmAction}
+                onCancel={handleCancelAction}
+                isLoading={isLoading}
+              />
+            ) : m.role === "confirm" && m.dismissed ? null
+
+            : m.role === "typing" ? (
+              /* 3-dot typing indicator — lives in the message list, not outside it */
+              <span style={{ display: "inline-flex", gap: 4, paddingTop: 2 }}>
+                {[0, 0.2, 0.4].map((delay, di) => (
+                  <span
+                    key={di}
+                    style={{
+                      width: 5,
+                      height: 5,
+                      borderRadius: "50%",
+                      background: "hsl(var(--primary))",
+                      display: "inline-block",
+                      animation: "pulse 1.2s ease-in-out infinite",
+                      animationDelay: `${delay}s`,
+                    }}
+                  />
+                ))}
+              </span>
+            )
+
+            : m.role === "error" ? (
+              /* Amber-border error bubble — distinct from normal assistant messages */
+              <div style={{
+                maxWidth: "92%",
+                background: "hsl(38 92% 50% / 0.08)",
+                border: "1px solid hsl(38 92% 50% / 0.4)",
+                borderRadius: "10px 10px 10px 2px",
+                padding: "8px 12px",
+                fontSize: "var(--text-sm)",
+                lineHeight: "var(--leading-normal)",
+                color: "hsl(var(--foreground))",
+                display: "flex",
+                alignItems: "flex-start",
+                gap: 7,
+              }}>
+                <span style={{ fontSize: 13, flexShrink: 0, marginTop: 1 }}>⚠️</span>
+                <span>{(m as { content: string }).content}</span>
+              </div>
+            )
+
+            : m.role === "user" ? (
               <div style={{
                 maxWidth: "85%",
                 background: "hsl(var(--primary) / 0.1)",
@@ -513,59 +731,45 @@ export const AIChatPanel = ({ collapsed, onToggle }: { collapsed: boolean; onTog
                 lineHeight: "var(--leading-normal)",
                 color: "hsl(var(--foreground))",
               }}>
-                {m.content}
+                {(m as { content: string }).content}
               </div>
             ) : (
-              <div style={{
-                maxWidth: "92%",
-                fontSize: "var(--text-sm)",
-                lineHeight: "var(--leading-normal)",
-                color: "hsl(var(--foreground))",
-              }}>
-                <div className="prose prose-sm max-w-none dark:prose-invert [&_p]:mb-2 [&_p:last-child]:mb-0 [&_ul]:my-2 [&_li]:my-1 [&_strong]:text-foreground [&_strong]:font-semibold [&_h1]:text-foreground [&_h2]:text-foreground [&_h3]:text-foreground">
-                  <ReactMarkdown rehypePlugins={[rehypeSanitize]}>{m.content}</ReactMarkdown>
-                </div>
-                {m.modelTier && (
-                  <div style={{ display: "flex", alignItems: "center", gap: 5, marginTop: 5 }}>
-                    <span style={{
-                      fontSize: 9,
-                      fontFamily: "var(--font-mono)",
-                      fontWeight: 500,
-                      padding: "1px 6px",
-                      borderRadius: 3,
-                      background: m.modelTier === "L3" ? "hsl(var(--primary) / 0.1)" : "hsl(var(--muted))",
-                      color: m.modelTier === "L3" ? "hsl(var(--primary))" : "hsl(var(--muted-foreground))",
-                      border: `1px solid ${m.modelTier === "L3" ? "hsl(var(--primary) / 0.3)" : "hsl(var(--border))"}`,
-                      letterSpacing: "0.04em",
-                    }}>
-                      {getModelLabel(m.modelTier, m.modelName ?? "")}
-                    </span>
+              // Assistant message
+              (() => {
+                const am = m as { role: "assistant"; content: string; modelTier?: string; modelName?: string };
+                return (
+                  <div style={{
+                    maxWidth: "92%",
+                    fontSize: "var(--text-sm)",
+                    lineHeight: "var(--leading-normal)",
+                    color: "hsl(var(--foreground))",
+                  }}>
+                    <div className="prose prose-sm max-w-none dark:prose-invert [&_p]:mb-2 [&_p:last-child]:mb-0 [&_ul]:my-2 [&_li]:my-1 [&_strong]:text-foreground [&_strong]:font-semibold [&_h1]:text-foreground [&_h2]:text-foreground [&_h3]:text-foreground">
+                      <ReactMarkdown rehypePlugins={[rehypeSanitize]}>{am.content}</ReactMarkdown>
+                    </div>
+                    {am.modelTier && (
+                      <div style={{ display: "flex", alignItems: "center", gap: 5, marginTop: 5 }}>
+                        <span style={{
+                          fontSize: 9,
+                          fontFamily: "var(--font-mono)",
+                          fontWeight: 500,
+                          padding: "1px 6px",
+                          borderRadius: 3,
+                          background: am.modelTier === "L3" ? "hsl(var(--primary) / 0.1)" : "hsl(var(--muted))",
+                          color: am.modelTier === "L3" ? "hsl(var(--primary))" : "hsl(var(--muted-foreground))",
+                          border: `1px solid ${am.modelTier === "L3" ? "hsl(var(--primary) / 0.3)" : "hsl(var(--border))"}`,
+                          letterSpacing: "0.04em",
+                        }}>
+                          {getModelLabel(am.modelTier, am.modelName ?? "")}
+                        </span>
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
+                );
+              })()
             )}
           </div>
         ))}
-        {isLoading && messages[messages.length - 1]?.role === "user" && (
-          <div style={{ display: "flex", justifyContent: "flex-start", paddingTop: 2 }}>
-            <span style={{ display: "inline-flex", gap: 4 }}>
-              {[0, 0.2, 0.4].map((delay, i) => (
-                <span
-                  key={i}
-                  style={{
-                    width: 5,
-                    height: 5,
-                    borderRadius: "50%",
-                    background: "hsl(var(--primary))",
-                    display: "inline-block",
-                    animation: "pulse 1.2s ease-in-out infinite",
-                    animationDelay: `${delay}s`,
-                  }}
-                />
-              ))}
-            </span>
-          </div>
-        )}
       </div>
 
       {/* Quick actions */}

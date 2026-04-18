@@ -23,6 +23,7 @@ import Alerts from "./pages/Alerts";
 import Reports from "./pages/Reports";
 import ReportMonteContratti from "./pages/ReportMonteContratti";
 import ProofPackage from "./pages/ProofPackage";
+import AILab from "./pages/AILab";
 import Settings from "./pages/Settings";
 import Transfers from "./pages/Transfers";
 import Mandates from "./pages/Mandates";
@@ -51,6 +52,9 @@ const App = () => (
             <Route path="/login" element={<Login />} />
             <Route path="/pricing" element={<Pricing />} />
             <Route path="/onboarding" element={<Onboarding />} />
+
+            {/* Protected standalone page (no sidebar): dedicated AI training lab */}
+            <Route path="/ai-lab" element={<ProtectedRoute><AILab /></ProtectedRoute>} />
 
             {/* Protected routes: sidebar + AI panel — require auth */}
             <Route element={<ProtectedRoute><DashboardLayout /></ProtectedRoute>}>

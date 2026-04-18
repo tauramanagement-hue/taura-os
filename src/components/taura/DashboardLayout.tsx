@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Outlet, useLocation } from "react-router-dom";
 import { AppSidebar } from "./AppSidebar";
 import { AIChatPanel } from "./AIChatPanel";
+import { ChatErrorBoundary } from "./ChatErrorBoundary";
 import { GlobalSearch } from "./GlobalSearch";
 import { MorningBriefing } from "./MorningBriefing";
 
@@ -17,7 +18,9 @@ export const DashboardLayout = () => {
           <Outlet />
         </div>
       </main>
-      <AIChatPanel collapsed={chatCollapsed} onToggle={() => setChatCollapsed(!chatCollapsed)} />
+      <ChatErrorBoundary>
+        <AIChatPanel collapsed={chatCollapsed} onToggle={() => setChatCollapsed(!chatCollapsed)} />
+      </ChatErrorBoundary>
       <GlobalSearch />
       <MorningBriefing />
     </div>

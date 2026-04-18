@@ -17,6 +17,7 @@ export interface RoutingResult {
 }
 
 const DEEP_PATTERNS = [
+  // Existing strategic/legal patterns
   /analizza\s+(tutti|intero|completo|ogni)/i,
   /strategia\s+negozial/i,
   /confronta\s+.*\s+con\s+/i,
@@ -27,6 +28,37 @@ const DEEP_PATTERNS = [
   /analisi\s+comparativa/i,
   /due\s+diligence/i,
   /valutazione\s+complessiva/i,
+
+  // Recommendation & advisory (user asks for judgment, not just lookup)
+  /cosa\s+farei|cosa\s+faresti|al\s+posto\s+(mio|tuo)/i,
+  /consiglier(ei|esti|ebbe)|cosa\s+consig/i,
+  /cosa\s+(dovremmo|dovrei|dovresti)\s+(fare|mandare|proporre|chiedere)/i,
+  /mi\s+consigli|dà?mi\s+il\s+tuo\s+consiglio/i,
+
+  // Time-horizon strategic analysis
+  /nei\s+prossimi\s+\d+\s+(giorni|mesi|settimane)/i,
+  /prossimi\s+60\s+giorni|prossimi\s+30\s+giorni|prossimo\s+trimestre/i,
+  /entro\s+(giugno|luglio|agosto|settembre|ottobre|novembre|dicembre|gennaio|febbraio|marzo|aprile|maggio)\s+\d{4}/i,
+
+  // Full-entity situational analysis
+  /situazione\s+(contrattuale|complessiva|attuale)\s+(di|del)/i,
+  /analizza\s+la\s+situazione/i,
+  /dimmi\s+tutto\s+su\s+/i,
+  /tutto\s+su\s+[A-Z]/i,
+
+  // Conflict / exclusivity deep check
+  /c[i']è\s+(un\s+)?conflitto|ci\s+sono\s+conflitti/i,
+  /ha\s+esclusività|sovrapposiz|categor.*conflitt/i,
+  /potrebbe\s+avere\s+un\s+conflitto/i,
+
+  // Multi-entity ranking/comparison
+  /ranking\s+(degli\s+)?atleti|dal\s+più\s+al\s+meno/i,
+  /chi\s+è\s+il\s+(nostro\s+)?(migliore|più\s+redditiz|più\s+valutat)/i,
+  /classifica.*atleti|ordina.*per.*valore/i,
+
+  // Good deal / offer evaluation
+  /è\s+un\s+buon\s+deal|è\s+conveniente|vale\s+la\s+pena/i,
+  /valuta\s+(questa\s+)?offerta|analizza\s+(questa\s+)?proposta/i,
 ];
 
 const MEDIUM_PATTERNS = [
@@ -90,7 +122,7 @@ export function routeRequest(input: RoutingInput): RoutingResult {
   const simpleMatch = SIMPLE_PATTERNS.some((p) => p.test(input.text));
 
   if (deepMatch) {
-    score += 30;
+    score += 40;   // was 30 — deep queries need to reliably clear L3 threshold
     reasons.push("complesso");
   } else if (mediumMatch) {
     score += 15;
@@ -131,8 +163,8 @@ export function routeRequest(input: RoutingInput): RoutingResult {
     { l2: number; l3: number; maxLevel: ModelLevel }
   > = {
     starter: { l2: 20, l3: 999, maxLevel: "L2" },
-    professional: { l2: 15, l3: 60, maxLevel: "L3" },
-    enterprise: { l2: 10, l3: 50, maxLevel: "L3" },
+    professional: { l2: 15, l3: 45, maxLevel: "L3" }, // was 60 — deep queries score ~45-55
+    enterprise: { l2: 10, l3: 35, maxLevel: "L3" },   // was 50 — enterprise gets L3 more easily
   };
 
   const cfg = tierConfig[input.userTier] ?? tierConfig.starter;

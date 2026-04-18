@@ -1,8 +1,119 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2";
 import { callAnthropic } from "../_shared/anthropic.ts";
 import { routeRequest } from "../_shared/llm-router.ts";
 import { convertAnthropicStreamToOpenAI, convertGeminiStreamToOpenAI } from "../_shared/stream-converter.ts";
+
+// ─── Action tool definitions (Anthropic tool-use format) ──────────────────
+const AI_TOOLS = [
+  {
+    name: "update_deliverable",
+    description: "Aggiorna i campi di un campaign_deliverable (data, approvazione, note, metriche). Usa questo tool quando l'utente vuole cambiare la data schedulata, aggiungere note, inserire impressions/reach/engagement, o cambiare lo stato approved/confirmed.",
+    input_schema: {
+      type: "object",
+      properties: {
+        deliverable_id: { type: "string", description: "UUID del deliverable" },
+        deliverable_hint: { type: "string", description: "Descrizione testuale per trovare il deliverable (es. 'reel Sofia Nike 15 maggio')" },
+        fields: {
+          type: "object",
+          properties: {
+            scheduled_date: { type: "string", description: "Nuova data schedulata ISO (YYYY-MM-DD)" },
+            content_approved: { type: "boolean" },
+            post_confirmed: { type: "boolean" },
+            notes: { type: "string" },
+            impressions: { type: "number" },
+            reach: { type: "number" },
+            engagement_rate: { type: "number", description: "Valore tra 0 e 1 (es. 0.045 = 4.5%)" },
+          },
+        },
+      },
+      required: ["fields"],
+    },
+  },
+  {
+    name: "update_deal_stage",
+    description: "Sposta un deal CRM a un nuovo stage. Usa quando l'utente dice 'porta il deal in negotiation', 'chiudi il deal', 'sposta a proposal', ecc.",
+    input_schema: {
+      type: "object",
+      properties: {
+        deal_id: { type: "string", description: "UUID del deal (se noto)" },
+        deal_hint: { type: "string", description: "Descrizione testuale per trovare il deal (es. 'deal Nike di Sofia')" },
+        stage: {
+          type: "string",
+          enum: ["inbound", "qualified", "proposal", "negotiation", "signed"],
+          description: "Nuovo stage",
+        },
+        notes: { type: "string", description: "Note opzionali da aggiungere al deal" },
+      },
+      required: ["stage"],
+    },
+  },
+  {
+    name: "create_deal",
+    description: "Crea un nuovo deal CRM. Usa quando l'utente vuole aggiungere una nuova opportunità commerciale.",
+    input_schema: {
+      type: "object",
+      properties: {
+        athlete_hint: { type: "string", description: "Nome dell'atleta/talent" },
+        brand: { type: "string" },
+        value: { type: "number", description: "Valore in EUR" },
+        deal_type: { type: "string", description: "Tipo deal (es. sponsorship, ambassador, endorsement)" },
+        notes: { type: "string" },
+        expected_close_date: { type: "string", description: "Data attesa chiusura ISO (YYYY-MM-DD)" },
+        stage: {
+          type: "string",
+          enum: ["inbound", "qualified", "proposal", "negotiation"],
+          description: "Stage iniziale (default: inbound)",
+        },
+      },
+      required: ["brand"],
+    },
+  },
+  {
+    name: "create_notification",
+    description: "Crea una notifica interna per il team dell'agenzia.",
+    input_schema: {
+      type: "object",
+      properties: {
+        type: { type: "string", description: "Tipo notifica (es. deal, campaign, contract, alert)" },
+        title: { type: "string" },
+        message: { type: "string" },
+        severity: { type: "string", enum: ["low", "medium", "high"] },
+        related_entity_type: { type: "string" },
+        related_entity_id: { type: "string" },
+      },
+      required: ["title", "message"],
+    },
+  },
+  {
+    name: "update_contract_field",
+    description: "Aggiorna campi testuali di un contratto (status, clausola di rinnovo, note).",
+    input_schema: {
+      type: "object",
+      properties: {
+        contract_id: { type: "string", description: "UUID del contratto (se noto)" },
+        contract_hint: { type: "string", description: "Descrizione testuale per trovare il contratto (es. 'contratto Nike di Sofia')" },
+        fields: {
+          type: "object",
+          properties: {
+            status: { type: "string", enum: ["active", "expired", "terminated", "draft"] },
+            renewal_clause: { type: "string" },
+            notes: { type: "string" },
+          },
+        },
+      },
+      required: ["fields"],
+    },
+  },
+];
+
+// ─── Action intent detection regex ────────────────────────────────────────
+const ACTION_INTENT_RE =
+  /\b(sposta(re)?( il)?( deal| lo stage| contratto)?|porta(re)?( il deal| in stage)?|aggiorna(re)?( il| la| le| lo)?( deal| stage| data| nota| contratto| deliverable| metrics|impressions|reach)?|crea(re)?( un| una)?( deal| notifica)|nuovo deal|inserisci( un)?( deal)|reschedula(re)?|rimanda(re)?|cambia(re)?( la)?( data| lo stage)|modifica(re)?( il| la)?( deal| contratto| nota)|update( deal| stage| contratto))\b/i;
+
+// Keywords that indicate the user is asking about FILE CONTENT
+const FILE_QUERY_RE =
+  /\b(leggi|analizza|apri|mostra il contenuto|cosa (dice|c[''']è nel)|estratto|estratta|testo del|clausole del|brief di|contratto di|media kit di|leggimi|apri il)\b/i;
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -143,7 +254,350 @@ async function generateQueryEmbedding(text: string, apiKey: string): Promise<num
   return null;
 }
 
-// Helper: stream a plain text message as SSE without calling any LLM
+// ─── Tool execution (post-confirmation) ───────────────────────────────────
+interface ToolInput {
+  tool: string;
+  // update_deliverable
+  deliverable_id?: string;
+  deliverable_hint?: string;
+  deliverable_fields?: Record<string, unknown>;
+  // update_deal_stage
+  deal_id?: string;
+  deal_hint?: string;
+  stage?: string;
+  // create_deal
+  athlete_id?: string;
+  athlete_hint?: string;
+  brand?: string;
+  value?: number;
+  deal_type?: string;
+  expected_close_date?: string;
+  // create_notification
+  type?: string;
+  title?: string;
+  message?: string;
+  severity?: string;
+  related_entity_type?: string;
+  related_entity_id?: string;
+  // update_contract_field
+  contract_id?: string;
+  contract_hint?: string;
+  contract_fields?: Record<string, unknown>;
+  // shared
+  notes?: string;
+}
+
+async function executeTool(
+  tool: ToolInput,
+  agencyId: string,
+  userId: string,
+  adminClient: SupabaseClient,
+): Promise<string> {
+  switch (tool.tool) {
+    case "update_deliverable": {
+      // Resolve ID via hint if needed
+      let id = tool.deliverable_id;
+      if (!id && tool.deliverable_hint) {
+        const { data } = await adminClient
+          .from("campaign_deliverables")
+          .select("id, content_type, scheduled_date, athletes(full_name), campaigns(brand)")
+          .limit(50);
+        const hint = normalizeText(tool.deliverable_hint);
+        const match = (data || []).find((d: { content_type?: string; scheduled_date?: string; athletes?: { full_name?: string }; campaigns?: { brand?: string } }) => {
+          const hay = normalizeText(`${d.content_type} ${d.scheduled_date} ${(d.athletes as { full_name?: string })?.full_name} ${(d.campaigns as { brand?: string })?.brand}`);
+          return hint.split(" ").filter((t) => t.length > 2).every((t) => hay.includes(t));
+        });
+        id = match?.id;
+      }
+      if (!id) return "⚠️ Deliverable non trovato. Specifica atleta, tipo contenuto e data.";
+      const { error } = await adminClient
+        .from("campaign_deliverables")
+        .update(tool.deliverable_fields ?? {})
+        .eq("id", id);
+      if (error) return `⚠️ Errore aggiornamento: ${error.message}`;
+      return `✅ Deliverable aggiornato.`;
+    }
+
+    case "update_deal_stage": {
+      let id = tool.deal_id;
+      if (!id && tool.deal_hint) {
+        const { data } = await adminClient
+          .from("deals")
+          .select("id, brand, athletes(full_name), stage")
+          .eq("agency_id", agencyId);
+        const hint = normalizeText(tool.deal_hint);
+        const match = (data || []).find((d: { brand?: string; athletes?: { full_name?: string }; stage?: string }) => {
+          const hay = normalizeText(`${d.brand} ${(d.athletes as { full_name?: string })?.full_name}`);
+          return hint.split(" ").filter((t) => t.length > 2).some((t) => hay.includes(t));
+        });
+        id = match?.id;
+      }
+      if (!id) return "⚠️ Deal non trovato. Specifica brand e/o atleta.";
+      const update: Record<string, unknown> = { stage: tool.stage, updated_at: new Date().toISOString() };
+      if (tool.notes) update.notes = tool.notes;
+      const { error } = await adminClient.from("deals").update(update).eq("id", id).eq("agency_id", agencyId);
+      if (error) return `⚠️ Errore: ${error.message}`;
+      return `✅ Stage deal aggiornato a **${tool.stage}**.`;
+    }
+
+    case "create_deal": {
+      let athleteId = tool.athlete_id;
+      if (!athleteId && tool.athlete_hint) {
+        const { data } = await adminClient.from("athletes").select("id, full_name").eq("agency_id", agencyId);
+        const hint = normalizeText(tool.athlete_hint);
+        const match = (data || []).find((a: { full_name?: string }) =>
+          normalizeText(a.full_name || "").split(" ").some((t) => hint.includes(t))
+        );
+        athleteId = match?.id;
+      }
+      if (!athleteId) return "⚠️ Atleta non trovato nel roster. Specifica il nome completo.";
+      const { error } = await adminClient.from("deals").insert({
+        agency_id: agencyId,
+        athlete_id: athleteId,
+        brand: tool.brand ?? "N/D",
+        value: tool.value ?? null,
+        currency: "EUR",
+        deal_type: tool.deal_type ?? null,
+        notes: tool.notes ?? null,
+        expected_close_date: tool.expected_close_date ?? null,
+        stage: tool.stage ?? "inbound",
+        probability: 10,
+      });
+      if (error) return `⚠️ Errore creazione deal: ${error.message}`;
+      return `✅ Deal **${tool.brand}** creato in stage **${tool.stage ?? "inbound"}**.`;
+    }
+
+    case "create_notification": {
+      const { error } = await adminClient.from("notifications").insert({
+        agency_id: agencyId,
+        user_id: userId,
+        type: tool.type ?? "alert",
+        title: tool.title ?? "Notifica AI",
+        message: tool.message ?? "",
+        severity: tool.severity ?? "medium",
+        related_entity_type: tool.related_entity_type ?? null,
+        related_entity_id: tool.related_entity_id ?? null,
+      });
+      if (error) return `⚠️ Errore: ${error.message}`;
+      return `✅ Notifica **"${tool.title}"** creata.`;
+    }
+
+    case "update_contract_field": {
+      let id = tool.contract_id;
+      if (!id && tool.contract_hint) {
+        const { data } = await adminClient
+          .from("contracts")
+          .select("id, brand, athletes(full_name)")
+          .eq("agency_id", agencyId);
+        const hint = normalizeText(tool.contract_hint);
+        const match = (data || []).find((c: { brand?: string; athletes?: { full_name?: string } }) => {
+          const hay = normalizeText(`${c.brand} ${(c.athletes as { full_name?: string })?.full_name}`);
+          return hint.split(" ").filter((t) => t.length > 2).some((t) => hay.includes(t));
+        });
+        id = match?.id;
+      }
+      if (!id) return "⚠️ Contratto non trovato. Specifica brand e/o atleta.";
+      const { error } = await adminClient
+        .from("contracts")
+        .update(tool.contract_fields ?? {})
+        .eq("id", id)
+        .eq("agency_id", agencyId);
+      if (error) return `⚠️ Errore: ${error.message}`;
+      return `✅ Contratto aggiornato.`;
+    }
+
+    default:
+      return "⚠️ Tool non riconosciuto.";
+  }
+}
+
+// ─── Detect action intent + call Anthropic tool-use → confirmation JSON ───
+async function detectActionAndReturnConfirmation(
+  userMsg: string,
+  messages: Array<{ role: string; content: unknown }>,
+  systemContext: string,
+  agencyId: string,
+  adminClient: SupabaseClient,
+): Promise<Response | null> {
+  const anthropicKey = Deno.env.get("ANTHROPIC_API_KEY");
+  if (!anthropicKey) return null;
+
+  try {
+    // Call Anthropic non-streaming with tool definitions
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "x-api-key": anthropicKey,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-5-20250929",
+        max_tokens: 1024,
+        tools: AI_TOOLS,
+        tool_choice: { type: "auto" },
+        system: `${systemContext}\n\nSei in modalità ACTION DETECTION. L'utente vuole eseguire una modifica nel sistema. Usa i tool disponibili per strutturare l'azione richiesta. Sii preciso con gli ID o fornisci hint descrittivi se l'ID non è nel contesto.`,
+        // Anthropic tools API: must start with a user message, max last 6 turns
+        messages: messages
+          .filter((m) => m.role === "user" || m.role === "assistant")
+          .slice(-6)
+          .reduce((acc: Array<{ role: string; content: string }>, m, idx, arr) => {
+            // Drop leading assistant messages (tool API requires user-first)
+            if (acc.length === 0 && m.role !== "user") return acc;
+            acc.push({
+              role: m.role,
+              content: typeof m.content === "string" ? m.content : JSON.stringify(m.content),
+            });
+            return acc;
+          }, []),
+      }),
+    });
+
+    if (!res.ok) {
+      const errBody = await res.text().catch(() => "");
+      console.error(`[detectAction] Anthropic ${res.status}:`, errBody.slice(0, 300));
+      return null;
+    }
+    const data = await res.json();
+
+    // Check if LLM chose to call a tool
+    const toolUse = data.content?.find((b: { type: string }) => b.type === "tool_use");
+    if (!toolUse) return null;
+
+    const toolName: string = toolUse.name;
+    const toolInput = toolUse.input ?? {};
+
+    // Get text part (AI explanation)
+    const textPart = data.content?.find((b: { type: string }) => b.type === "text");
+    const aiMessage = textPart?.text ?? `Vuoi che esegua: ${toolName}?`;
+
+    // Build before/after fields for display
+    const fieldsToChange: Array<{ field: string; before: unknown; after: unknown }> = [];
+
+    if (toolName === "update_deal_stage" && toolInput.deal_hint) {
+      const { data: deals } = await adminClient
+        .from("deals")
+        .select("id, brand, stage, athletes(full_name)")
+        .eq("agency_id", agencyId);
+      const hint = normalizeText(toolInput.deal_hint);
+      const match = (deals || []).find((d: { brand?: string; athletes?: { full_name?: string } }) => {
+        const hay = normalizeText(`${d.brand} ${(d.athletes as { full_name?: string })?.full_name}`);
+        return hint.split(" ").filter((t) => t.length > 2).some((t) => hay.includes(t));
+      });
+      if (match) {
+        toolInput.deal_id = match.id;
+        fieldsToChange.push({ field: "stage", before: match.stage, after: toolInput.stage });
+      }
+    }
+
+    if (toolName === "update_deliverable" && toolInput.fields) {
+      Object.entries(toolInput.fields as Record<string, unknown>).forEach(([k, v]) => {
+        fieldsToChange.push({ field: k, before: null, after: v });
+      });
+    }
+
+    if (toolName === "update_contract_field" && toolInput.fields) {
+      Object.entries(toolInput.fields as Record<string, unknown>).forEach(([k, v]) => {
+        fieldsToChange.push({ field: k, before: null, after: v });
+      });
+    }
+
+    if (toolName === "create_deal") {
+      fieldsToChange.push({ field: "brand", before: null, after: toolInput.brand });
+      if (toolInput.value) fieldsToChange.push({ field: "valore", before: null, after: `€${toolInput.value}` });
+      if (toolInput.stage) fieldsToChange.push({ field: "stage", before: null, after: toolInput.stage });
+    }
+
+    // Map tool name to description
+    const toolDescriptions: Record<string, string> = {
+      update_deliverable: "Aggiornamento deliverable",
+      update_deal_stage: "Aggiornamento stage deal",
+      create_deal: "Creazione nuovo deal",
+      create_notification: "Creazione notifica",
+      update_contract_field: "Aggiornamento contratto",
+    };
+    const humanDescription = toolDescriptions[toolName] ?? toolName;
+
+    // Build action payload for execution
+    const actionPayload: ToolInput = { tool: toolName };
+    if (toolName === "update_deliverable") {
+      actionPayload.deliverable_id = toolInput.deliverable_id;
+      actionPayload.deliverable_hint = toolInput.deliverable_hint;
+      actionPayload.deliverable_fields = toolInput.fields;
+    } else if (toolName === "update_deal_stage") {
+      actionPayload.deal_id = toolInput.deal_id;
+      actionPayload.deal_hint = toolInput.deal_hint;
+      actionPayload.stage = toolInput.stage;
+      actionPayload.notes = toolInput.notes;
+    } else if (toolName === "create_deal") {
+      actionPayload.athlete_hint = toolInput.athlete_hint;
+      actionPayload.brand = toolInput.brand;
+      actionPayload.value = toolInput.value;
+      actionPayload.deal_type = toolInput.deal_type;
+      actionPayload.notes = toolInput.notes;
+      actionPayload.expected_close_date = toolInput.expected_close_date;
+      actionPayload.stage = toolInput.stage;
+    } else if (toolName === "create_notification") {
+      Object.assign(actionPayload, toolInput);
+    } else if (toolName === "update_contract_field") {
+      actionPayload.contract_id = toolInput.contract_id;
+      actionPayload.contract_hint = toolInput.contract_hint;
+      actionPayload.contract_fields = toolInput.fields;
+    }
+
+    const irreversible = toolName === "create_deal" || toolName === "create_notification";
+
+    return new Response(
+      JSON.stringify({
+        requires_confirmation: true,
+        message: aiMessage,
+        confirmation: {
+          action_type: toolName,
+          human_readable_description: humanDescription,
+          fields_to_change: fieldsToChange,
+          reversible: !irreversible,
+        },
+        action_payload: actionPayload,
+      }),
+      {
+        headers: { ...corsHeaders, "Content-Type": "application/json", "X-Model-Tier": "L2" },
+      },
+    );
+  } catch (e) {
+    console.error("[chat] action detection error:", e);
+    return null; // fall through to normal chat
+  }
+}
+
+// ─── File content extraction via file-processor ───────────────────────────
+async function fetchFileContent(
+  bucket: string,
+  path: string,
+  agencyId: string,
+  serviceKey: string,
+  supabaseUrl: string,
+  authToken: string,
+): Promise<string | null> {
+  try {
+    const fpUrl = `${supabaseUrl}/functions/v1/file-processor`;
+    const res = await fetch(fpUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${authToken}`,
+        "apikey": serviceKey,
+      },
+      body: JSON.stringify({ action: "extract", bucket, path, agency_id: agencyId }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.text ?? null;
+  } catch {
+    return null;
+  }
+}
+
+// ─── Helper: stream a plain text message as SSE without calling any LLM ──
 function streamDirectText(text: string, headers: Record<string, string>): Response {
   const encoder = new TextEncoder();
   const body = new ReadableStream({
@@ -164,7 +618,24 @@ Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response(null, { status: 200, headers: corsHeaders });
 
   try {
-    const { messages } = await req.json();
+    const body = await req.json();
+    const messages = body.messages ?? [];
+
+    // ── Execution path: confirmed tool action ─────────────────────────────
+    if (body.execute_confirmed_action && body.action_payload) {
+      const authHeader = req.headers.get("authorization") ?? "";
+      const token = authHeader.replace("Bearer ", "");
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+      const adminClient = createClient(supabaseUrl, serviceKey);
+      const { data: { user } } = await adminClient.auth.getUser(token);
+      if (!user) return new Response(JSON.stringify({ error: "Sessione scaduta" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      const { data: profile } = await adminClient.from("profiles").select("agency_id").eq("id", user.id).single();
+      if (!profile?.agency_id) return new Response(JSON.stringify({ error: "Nessuna agenzia" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+
+      const resultMsg = await executeTool(body.action_payload, profile.agency_id, user.id, adminClient);
+      return streamDirectText(resultMsg, corsHeaders);
+    }
 
     // ── Detect status-update intent early, before any expensive work ──
     const latestUserMsg = messages?.[messages.length - 1]?.role === "user"
@@ -380,11 +851,20 @@ Deno.serve(async (req: Request) => {
 
     let contextBlock = "";
     let agencyPlan = "free";
+    // Track for action detection & file fetching (resolved after context build)
+    let resolvedAgencyId = "";
+    let resolvedUserId = "";
+    let resolvedToken = "";
+    let resolvedServiceKey = "";
+    let resolvedSupabaseUrl = "";
     try {
       const authHeader = req.headers.get("authorization") || "";
       const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
       const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
       const token = authHeader.replace("Bearer ", "");
+      resolvedToken = token;
+      resolvedServiceKey = supabaseServiceKey;
+      resolvedSupabaseUrl = supabaseUrl;
 
       const adminClient = createClient(supabaseUrl, supabaseServiceKey);
       const { data: { user } } = await adminClient.auth.getUser(token);
@@ -406,6 +886,8 @@ Deno.serve(async (req: Request) => {
 
         if (profile?.agency_id) {
           const agencyId = profile.agency_id;
+          resolvedAgencyId = agencyId;
+          resolvedUserId = user.id;
           agencyPlan = (profile as { agencies?: { plan?: string } }).agencies?.plan || "free";
 
           const campaignIds = (await adminClient.from("campaigns").select("id").eq("agency_id", agencyId)).data?.map((c: { id: string }) => c.id) || [];
@@ -504,6 +986,60 @@ Deno.serve(async (req: Request) => {
             }
           }
 
+          // ── File ingestion: if user mentions a file, extract content ──
+          let fileContentBlock = "";
+          if (FILE_QUERY_RE.test(latestUserMsg)) {
+            try {
+              const msgNorm = normalizeText(latestUserMsg);
+              // Try contracts
+              const { data: fcContracts } = await adminClient
+                .from("contracts")
+                .select("id, brand, file_url, athletes(full_name)")
+                .eq("agency_id", agencyId)
+                .not("file_url", "is", null);
+              const matchedContract = (fcContracts || []).find((c: { brand?: string; athletes?: { full_name?: string }; file_url?: string }) => {
+                const hay = normalizeText(`${c.brand} ${(c.athletes as { full_name?: string })?.full_name}`);
+                return msgNorm.split(" ").filter((t) => t.length > 2).some((t) => hay.includes(t));
+              });
+              if (matchedContract?.file_url) {
+                const text = await fetchFileContent("contracts", matchedContract.file_url, agencyId, supabaseServiceKey, supabaseUrl, token);
+                if (text) fileContentBlock = `\n\nCONTENUTO FILE CONTRATTO (${matchedContract.brand}):\n${text.slice(0, 6000)}`;
+              }
+
+              // Try campaigns (briefs)
+              if (!fileContentBlock) {
+                const { data: fcCampaigns } = await adminClient
+                  .from("campaigns")
+                  .select("id, name, brand, brief_file_url")
+                  .eq("agency_id", agencyId)
+                  .not("brief_file_url", "is", null);
+                const matchedCampaign = (fcCampaigns || []).find((c: { name?: string; brand?: string; brief_file_url?: string }) => {
+                  const hay = normalizeText(`${c.name} ${c.brand}`);
+                  return msgNorm.split(" ").filter((t) => t.length > 2).some((t) => hay.includes(t));
+                });
+                if (matchedCampaign?.brief_file_url) {
+                  const text = await fetchFileContent("briefs", matchedCampaign.brief_file_url, agencyId, supabaseServiceKey, supabaseUrl, token);
+                  if (text) fileContentBlock = `\n\nCONTENUTO BRIEF (${matchedCampaign.brand} / ${matchedCampaign.name}):\n${text.slice(0, 6000)}`;
+                }
+              }
+
+              // Try athletes (media kit)
+              if (!fileContentBlock) {
+                const matchedAthlete = (athletes as Array<{ id: string; full_name?: string; media_kit_url?: string }>).find((a) => {
+                  const hay = normalizeText(a.full_name || "");
+                  return msgNorm.split(" ").filter((t) => t.length > 2).some((t) => hay.includes(t));
+                });
+                if (matchedAthlete?.media_kit_url) {
+                  const text = await fetchFileContent("media-kits", matchedAthlete.media_kit_url, agencyId, supabaseServiceKey, supabaseUrl, token);
+                  if (text) fileContentBlock = `\n\nMEDIA KIT (${matchedAthlete.full_name}):\n${text.slice(0, 4000)}`;
+                }
+              }
+              if (fileContentBlock) console.log(`[chat] file enrichment: ${fileContentBlock.length} chars`);
+            } catch (fe) {
+              console.error("[chat] file enrichment error:", fe);
+            }
+          }
+
           contextBlock = `${updateResultBlock}
 --- DATI AGENZIA (${today}) ---
 Agenzia: ${(profile as { agencies?: { name?: string; sport_sector?: string } }).agencies?.name || "N/D"} | Settore: ${(profile as { agencies?: { sport_sector?: string } }).agencies?.sport_sector || "N/D"}
@@ -526,6 +1062,11 @@ ${postedDeliverables.map((d: { athletes?: { full_name?: string }; campaigns?: { 
 ${semanticBlock}
 ---`;
 
+          // Append file content (after truncation check, so it always gets through)
+          if (fileContentBlock) {
+            contextBlock += fileContentBlock.slice(0, 5000);
+          }
+
           // Final safety: truncate context block if still too large
           if (contextBlock.length > MAX_CONTEXT_CHARS) {
             contextBlock = contextBlock.slice(0, MAX_CONTEXT_CHARS) + "\n... [contesto troncato per limiti di dimensione]";
@@ -534,6 +1075,28 @@ ${semanticBlock}
       }
     } catch (ctxErr) {
       console.error("Context fetch error:", ctxErr);
+    }
+
+    // ── Action detection: intercept write intents, return confirmation JSON ─
+    if (
+      ACTION_INTENT_RE.test(latestUserMsg) &&
+      !statusIntent &&
+      !commIntent &&
+      resolvedAgencyId &&
+      resolvedToken
+    ) {
+      const supabaseUrl2 = Deno.env.get("SUPABASE_URL")!;
+      const serviceKey2 = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+      const adminClient2 = createClient(supabaseUrl2, serviceKey2);
+      const confirmResponse = await detectActionAndReturnConfirmation(
+        latestUserMsg,
+        messages,
+        contextBlock,
+        resolvedAgencyId,
+        adminClient2,
+      );
+      if (confirmResponse) return confirmResponse;
+      // If detection failed, fall through to normal LLM chat
     }
 
     const planToTier = (plan: string): "starter" | "professional" | "enterprise" => {
@@ -572,12 +1135,21 @@ ${semanticBlock}
 
 LINGUA: Italiano. Valori in €XX.XXX, date DD/MM/YYYY.
 
-REGOLE BASE:
+## PERMESSI DI SCRITTURA (OBBLIGATORI)
+Puoi e DEVI eseguire azioni di modifica quando l'utente te lo chiede. NON dire mai "non posso modificare", "non ho i permessi", "non posso eseguire operazioni di scrittura" — usa sempre i tool disponibili e chiedi conferma prima di procedere.
+- Se l'utente vuole spostare una data → usa update_deliverable
+- Se l'utente vuole aggiornare uno stage → usa update_deal_stage
+- Se l'utente vuole creare un deal → usa create_deal
+- Se l'utente vuole aggiungere note o metriche → usa update_deliverable o update_contract_field
+- Proponi SEMPRE l'azione strutturata. Non chiedere se vuole procedere — mostra la preview e chiedi conferma.
+
+## REGOLE BASE:
 - Usa SOLO i dati del blocco DATI AGENZIA sotto. NON inventare, NON stimare, NON aggiungere info esterne.
 - Se il blocco DATI AGENZIA e assente: rispondi "⚠️ Sessione non caricata. Ricarica la pagina o effettua di nuovo il login."
 - Se una campagna, atleta o brand non e presente nel blocco dati, dillo chiaramente.
 - Segnala conflitti con ⚠️.
 - MAI troncare un elenco. Se ci sono 6 deliverable non pubblicati, elencane 6.
+- Se l'utente menziona un file (contratto, brief, media kit): il contenuto estratto è nel blocco CONTENUTO FILE sotto — analizzalo e rispondi con i dettagli.
 
 ---
 ## FORMATO RISPOSTA — LISTA DELIVERABLE
@@ -634,14 +1206,34 @@ DATA E CALENDARIO:
 
 ${contextBlock}`;
 
-    const response = await callAnthropic({
-      level: routing.level,
-      system: systemPrompt,
-      messages,
-      stream: true,
-      max_tokens: routing.level === "L3" ? 8192 : routing.level === "L2" ? 4096 : 2048,
-      temperature: routing.level === "L1" ? 0.2 : routing.level === "L2" ? 0.15 : 0.1,
-    });
+    // 22s hard timeout: if the LLM call hangs, return a graceful message
+    // rather than leaving the client spinning indefinitely.
+    const LLM_TIMEOUT_MS = 22_000;
+    let response: Response;
+    try {
+      response = await Promise.race([
+        callAnthropic({
+          level: routing.level,
+          system: systemPrompt,
+          messages,
+          stream: true,
+          max_tokens: routing.level === "L3" ? 8192 : routing.level === "L2" ? 4096 : 2048,
+          temperature: routing.level === "L1" ? 0.2 : routing.level === "L2" ? 0.15 : 0.1,
+        }),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("LLM_TIMEOUT")), LLM_TIMEOUT_MS)
+        ),
+      ]);
+    } catch (timeoutErr) {
+      if (timeoutErr instanceof Error && timeoutErr.message === "LLM_TIMEOUT") {
+        console.warn("[chat] LLM call exceeded 22s — returning timeout message");
+        return streamDirectText(
+          "Elaborazione in corso — riprova con una domanda più specifica.",
+          corsHeaders,
+        );
+      }
+      throw timeoutErr;
+    }
 
     const provider = response.headers.get("X-AI-Provider");
     const outputStream =

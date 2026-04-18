@@ -229,7 +229,7 @@ const DashboardPage = () => {
     const agencyProfiles = profilesData?.filter((p: any) => p.agency_id) || [];
     setChecklist({
       contract: allContracts.length > 0,
-      athlete: athletes.length > 0,
+      athlete: (athletesRes.data?.length ?? 0) > 0,
       threeContracts: allContracts.length >= 3,
       colleague: agencyProfiles.length > 1,
       chatMsg: (chatMsgsRes.count ?? 0) > 0,

@@ -57,9 +57,17 @@ async function callAnthropicDirect(params: {
     }),
   });
   if (!res.ok) {
-    const err = await res.text();
-    console.error("[anthropic]", res.status, err);
-    throw new Error(`Anthropic error ${res.status}`);
+    const errText = await res.text();
+    console.error("[anthropic]", res.status, errText);
+    // Parse the error detail if Anthropic returned JSON
+    let detail = "";
+    try {
+      const errJson = JSON.parse(errText);
+      detail = errJson?.error?.message ?? errJson?.message ?? errText.slice(0, 200);
+    } catch {
+      detail = errText.slice(0, 200);
+    }
+    throw new Error(`Anthropic error ${res.status}: ${detail}`);
   }
   return withProviderHeader(res, "anthropic");
 }
