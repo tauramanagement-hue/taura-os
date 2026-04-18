@@ -1,6 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2";
-import { callAnthropic } from "../_shared/anthropic.ts";
+import { callAnthropic, sanitizeMessages } from "../_shared/anthropic.ts";
 import { routeRequest } from "../_shared/llm-router.ts";
 import { convertAnthropicStreamToOpenAI, convertGeminiStreamToOpenAI } from "../_shared/stream-converter.ts";
 
@@ -437,19 +437,9 @@ async function detectActionAndReturnConfirmation(
         tools: AI_TOOLS,
         tool_choice: { type: "auto" },
         system: `${systemContext}\n\nSei in modalità ACTION DETECTION. L'utente vuole eseguire una modifica nel sistema. Usa i tool disponibili per strutturare l'azione richiesta. Sii preciso con gli ID o fornisci hint descrittivi se l'ID non è nel contesto.`,
-        // Anthropic tools API: must start with a user message, max last 6 turns
-        messages: messages
-          .filter((m) => m.role === "user" || m.role === "assistant")
-          .slice(-6)
-          .reduce((acc: Array<{ role: string; content: string }>, m, idx, arr) => {
-            // Drop leading assistant messages (tool API requires user-first)
-            if (acc.length === 0 && m.role !== "user") return acc;
-            acc.push({
-              role: m.role,
-              content: typeof m.content === "string" ? m.content : JSON.stringify(m.content),
-            });
-            return acc;
-          }, []),
+        // Shared sanitizer: strips leading assistant, merges consecutive same-role,
+        // normalizes content — identical to what callAnthropicDirect does internally.
+        messages: sanitizeMessages(messages.slice(-6)),
       }),
     });
 
