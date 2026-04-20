@@ -55,6 +55,10 @@ export const AIChatPanel = ({ collapsed, onToggle }: { collapsed: boolean; onTog
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // RAF-based stream flushing: accumulate tokens into a local string and
+  // commit to React state at most once per animation frame (~60fps).
+  const rafPendingRef = useRef(false);
+  const rafIdRef = useRef(0);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -94,6 +98,10 @@ export const AIChatPanel = ({ collapsed, onToggle }: { collapsed: boolean; onTog
 
     // Build the (possibly pruned) history for the API call
     const historyForApi = pruneHistory(allMessages);
+
+    // Hoisted so `finally` can read them (const inside try is not visible there)
+    let tier = "";
+    let modelName = "";
 
     try {
       const { data: sessionData } = await supabase.auth.getSession();
@@ -168,9 +176,14 @@ export const AIChatPanel = ({ collapsed, onToggle }: { collapsed: boolean; onTog
         }
       }
 
-      const tier = response.headers.get("X-Model-Tier") ?? "";
-      const modelName = response.headers.get("X-Model-Name") ?? "";
+      // Read headers immediately — they are available as soon as the HTTP
+      // response arrives, before any body bytes are read. Unlocking the
+      // input and setting the badge here (Fix 3) means the user can type
+      // their next message while the stream is still rendering.
+      tier = response.headers.get("X-Model-Tier") ?? "";
+      modelName = response.headers.get("X-Model-Name") ?? "";
       if (tier) setModelTier(tier);
+      setIsLoading(false); // unblock input immediately — stream renders independently
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
@@ -215,17 +228,26 @@ export const AIChatPanel = ({ collapsed, onToggle }: { collapsed: boolean; onTog
             const content = parsed.choices?.[0]?.delta?.content;
             if (content) {
               assistantSoFar += content;
-              setMessages(prev => {
-                // Remove any typing indicator before appending/updating assistant text
-                const withoutTyping = prev.filter(m => m.role !== "typing");
-                const last = withoutTyping[withoutTyping.length - 1];
-                if (last?.role === "assistant") {
-                  return withoutTyping.map((m, i) =>
-                    i === withoutTyping.length - 1 ? { ...m, content: assistantSoFar } : m
-                  );
-                }
-                return [...withoutTyping, { role: "assistant", content: assistantSoFar }];
-              });
+              // Schedule a state flush at most once per animation frame (~60fps).
+              // Multiple chunks arriving within one frame are batched into a single
+              // setMessages call, eliminating the per-chunk re-render jitter.
+              if (!rafPendingRef.current) {
+                rafPendingRef.current = true;
+                rafIdRef.current = requestAnimationFrame(() => {
+                  const text = assistantSoFar; // read accumulated value at flush time
+                  setMessages(prev => {
+                    const withoutTyping = prev.filter(m => m.role !== "typing");
+                    const last = withoutTyping[withoutTyping.length - 1];
+                    if (last?.role === "assistant") {
+                      return withoutTyping.map((m, i) =>
+                        i === withoutTyping.length - 1 ? { ...m, content: text } : m
+                      );
+                    }
+                    return [...withoutTyping, { role: "assistant", content: text }];
+                  });
+                  rafPendingRef.current = false;
+                });
+              }
             }
           } catch {
             textBuffer = line + "\n" + textBuffer;
@@ -234,14 +256,23 @@ export const AIChatPanel = ({ collapsed, onToggle }: { collapsed: boolean; onTog
         }
       }
 
-      // Attach model info to the last assistant message
-      if (assistantSoFar && tier) {
-        setMessages(prev => prev.map((m, i) =>
-          i === prev.length - 1 && m.role === "assistant"
-            ? { ...m, modelTier: tier, modelName }
-            : m
-        ));
+      // Final flush: cancel any in-flight RAF and commit whatever accumulated
+      // during the last partial frame so the complete response is always shown.
+      cancelAnimationFrame(rafIdRef.current);
+      rafPendingRef.current = false;
+      if (assistantSoFar) {
+        setMessages(prev => {
+          const withoutTyping = prev.filter(m => m.role !== "typing");
+          const last = withoutTyping[withoutTyping.length - 1];
+          if (last?.role === "assistant") {
+            return withoutTyping.map((m, i) =>
+              i === withoutTyping.length - 1 ? { ...m, content: assistantSoFar } : m
+            );
+          }
+          return [...withoutTyping, { role: "assistant", content: assistantSoFar }];
+        });
       }
+
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Errore imprevisto";
       // Roll back optimistic user message if nothing streamed; show amber error
@@ -255,8 +286,19 @@ export const AIChatPanel = ({ collapsed, onToggle }: { collapsed: boolean; onTog
         return [...cleaned, { role: "error" as const, content: msg }];
       });
     } finally {
-      // Strip any leftover typing indicator and unlock input
-      setMessages(prev => prev.filter(m => m.role !== "typing"));
+      // Attach badge + strip typing + unlock input in ONE batch so no intermediate
+      // render shows the badge while isLoading is still true (which blocks the input).
+      setMessages(prev => {
+        const withoutTyping = prev.filter(m => m.role !== "typing");
+        if (assistantSoFar && tier) {
+          return withoutTyping.map((m, i) =>
+            i === withoutTyping.length - 1 && m.role === "assistant"
+              ? { ...m, modelTier: tier, modelName }
+              : m
+          );
+        }
+        return withoutTyping;
+      });
       setIsLoading(false);
     }
   };

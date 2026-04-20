@@ -77,13 +77,21 @@ const MEDIUM_PATTERNS = [
   /elenco|elenca|lista|tutti/i,
   /zalando|nike|gucci|armani|samsung|loreal|myprotein|ita airways|booking/i,
   /sofia|giulia|beatrice|chiara|valentina|luca|marco|elisa|aurora|davide/i,
-  /cosa|cosa c|cosa manca|dimmi|mostrami|dammi/i,
+  // Tightened: require an object after the question word to avoid matching bare "cosa", "dimmi" etc.
+  /cosa (manca|c'è|devo|dovrei|dobbiamo|mandare|fare|pubblicare)/i,
+  /dimmi (tutto|i dettagli|la situazione)/i,
+  /mostrami (i|il|la|tutti)/i,
+  /dammi (un|il|la|i)/i,
 ];
 
 const SIMPLE_PATTERNS = [
   /^(ciao|salve|buongiorno|hey|ok|grazie|perfetto|va bene|capito|si|no)\b/i,
   /^mostra|^visualizza|^apri|^vai/i,
   /^quanti|^quanto|^lista|^elenco/i,
+  // Short temporal / status questions that carry no analytical weight
+  /^(che (giorno|ora|data|giorno è)|oggi è|quando è|adesso|status)\b/i,
+  /^[a-zàèéìòù\s]{1,15}\?$/i,  // any Italian short question under 15 chars
+  /^.{1,20}\?$/,                 // any question under 20 chars total (incl. accented chars)
 ];
 
 export function routeRequest(input: RoutingInput): RoutingResult {
@@ -128,7 +136,7 @@ export function routeRequest(input: RoutingInput): RoutingResult {
     score += 15;
     reasons.push("medio");
   } else if (simpleMatch) {
-    score -= 5;
+    score -= 10;
     reasons.push("semplice");
   }
 
@@ -162,9 +170,9 @@ export function routeRequest(input: RoutingInput): RoutingResult {
     string,
     { l2: number; l3: number; maxLevel: ModelLevel }
   > = {
-    starter: { l2: 20, l3: 999, maxLevel: "L2" },
-    professional: { l2: 15, l3: 45, maxLevel: "L3" }, // was 60 — deep queries score ~45-55
-    enterprise: { l2: 10, l3: 35, maxLevel: "L3" },   // was 50 — enterprise gets L3 more easily
+    starter:      { l2: 25, l3: 999, maxLevel: "L2" },
+    professional: { l2: 20, l3: 50,  maxLevel: "L3" },
+    enterprise:   { l2: 15, l3: 40,  maxLevel: "L3" },
   };
 
   const cfg = tierConfig[input.userTier] ?? tierConfig.starter;

@@ -6,7 +6,7 @@
  * click Conferma or Annulla before the write is executed.
  */
 
-import { CheckCircle, XCircle, AlertTriangle, ArrowRight } from "lucide-react";
+import { CheckCircle, XCircle, AlertTriangle, ArrowRight, LockOpen, Lock } from "lucide-react";
 
 export interface FieldChange {
   field: string;
@@ -35,12 +35,38 @@ export interface ConfirmActionCardProps {
   isLoading?: boolean;
 }
 
-const ACTION_LABELS: Record<string, string> = {
-  update_deliverable: "Aggiornamento deliverable",
-  update_deal_stage: "Aggiornamento stage deal",
-  create_deal: "Creazione deal",
-  create_notification: "Creazione notifica",
-  update_contract_field: "Aggiornamento contratto",
+// Card title (noun phrase)
+const ACTION_TITLES: Record<string, string> = {
+  update_deliverable:   "Aggiornamento deliverable",
+  update_deal_stage:    "Aggiornamento stage deal",
+  create_deal:          "Creazione deal",
+  create_notification:  "Creazione notifica",
+  update_contract_field:"Aggiornamento contratto",
+};
+
+// User-facing question (replaces raw "Vuoi che esegua: tool_name?")
+const ACTION_QUESTIONS: Record<string, string> = {
+  update_deliverable:   "Vuoi aggiornare questo deliverable?",
+  update_deal_stage:    "Vuoi spostare questo deal?",
+  create_deal:          "Vuoi creare questo nuovo deal?",
+  create_notification:  "Vuoi creare questa notifica?",
+  update_contract_field:"Vuoi modificare questo contratto?",
+};
+
+// Italian labels for DB field names
+const FIELD_LABELS: Record<string, string> = {
+  scheduled_date:  "Data pubblicazione",
+  stage:           "Stage pipeline",
+  content_approved:"Contenuto approvato",
+  post_confirmed:  "Pubblicato",
+  notes:           "Note",
+  value:           "Valore (€)",
+  brand:           "Brand",
+  status:          "Stato contratto",
+  renewal_clause:  "Clausola rinnovo",
+  impressions:     "Impressioni",
+  reach:           "Reach",
+  engagement_rate: "Engagement rate",
 };
 
 function formatValue(v: string | number | boolean | null): string {
@@ -57,7 +83,13 @@ export const ConfirmActionCard = ({
   onCancel,
   isLoading = false,
 }: ConfirmActionCardProps) => {
-  const actionLabel = ACTION_LABELS[confirmation.action_type] ?? confirmation.action_type;
+  const title    = ACTION_TITLES[confirmation.action_type]    ?? confirmation.action_type;
+  const question = ACTION_QUESTIONS[confirmation.action_type] ?? "Vuoi procedere con questa azione?";
+
+  // The edge function falls back to "Vuoi che esegua: <tool>?" when Claude
+  // returns no text block — don't surface that raw string to the user.
+  const isRawFallback = message.startsWith("Vuoi che esegua:");
+  const showAiContext = !isRawFallback && message.trim().length > 0;
 
   return (
     <div
@@ -70,7 +102,7 @@ export const ConfirmActionCard = ({
         fontSize: "var(--text-sm)",
       }}
     >
-      {/* Header */}
+      {/* ── Title row ───────────────────────────────────────────────────── */}
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
         <AlertTriangle size={14} style={{ color: "hsl(var(--primary))", flexShrink: 0 }} />
         <span
@@ -82,52 +114,80 @@ export const ConfirmActionCard = ({
             letterSpacing: "-0.01em",
           }}
         >
-          {actionLabel}
-        </span>
-        <span
-          style={{
-            fontSize: 9,
-            fontFamily: "var(--font-mono)",
-            padding: "1px 6px",
-            borderRadius: 3,
-            background: confirmation.reversible
-              ? "hsl(var(--muted))"
-              : "hsl(var(--destructive) / 0.1)",
-            color: confirmation.reversible
-              ? "hsl(var(--muted-foreground))"
-              : "hsl(var(--destructive))",
-            border: `1px solid ${confirmation.reversible ? "hsl(var(--border))" : "hsl(var(--destructive) / 0.3)"}`,
-            letterSpacing: "0.04em",
-          }}
-        >
-          {confirmation.reversible ? "reversibile" : "irreversibile"}
+          {title}
         </span>
       </div>
 
-      {/* AI message */}
+      {/* ── Action question ─────────────────────────────────────────────── */}
       <p
         style={{
           color: "hsl(var(--foreground))",
           lineHeight: "var(--leading-normal)",
-          marginBottom: 10,
+          marginBottom: 8,
         }}
       >
-        {message}
+        {question}
       </p>
 
-      {/* Human-readable description */}
-      <p
-        style={{
-          color: "hsl(var(--muted-foreground))",
-          fontSize: "var(--text-xs)",
-          marginBottom: confirmation.fields_to_change.length > 0 ? 10 : 14,
-          fontStyle: "italic",
-        }}
-      >
-        {confirmation.human_readable_description}
-      </p>
+      {/* ── Reversibility badge (moved below question) ───────────────────── */}
+      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: showAiContext ? 10 : 12 }}>
+        <span
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 4,
+            fontSize: 9,
+            fontFamily: "var(--font-mono)",
+            fontWeight: 500,
+            padding: "2px 7px",
+            borderRadius: 4,
+            letterSpacing: "0.04em",
+            background: confirmation.reversible
+              ? "hsl(var(--muted))"
+              : "hsl(38 92% 50% / 0.12)",
+            color: confirmation.reversible
+              ? "hsl(var(--muted-foreground))"
+              : "hsl(38 70% 45%)",
+            border: `1px solid ${
+              confirmation.reversible
+                ? "hsl(var(--border))"
+                : "hsl(38 92% 50% / 0.35)"
+            }`,
+          }}
+        >
+          {confirmation.reversible
+            ? <LockOpen size={9} />
+            : <Lock size={9} />
+          }
+          {confirmation.reversible ? "reversibile" : "irreversibile"}
+        </span>
+        <span
+          style={{
+            fontSize: "var(--text-xs)",
+            color: "hsl(var(--muted-foreground))",
+          }}
+        >
+          {confirmation.reversible
+            ? "Puoi annullare questa modifica manualmente"
+            : "Questa azione non può essere annullata automaticamente"}
+        </span>
+      </div>
 
-      {/* Fields before/after */}
+      {/* ── Optional AI context (only when substantive) ──────────────────── */}
+      {showAiContext && (
+        <p
+          style={{
+            color: "hsl(var(--muted-foreground))",
+            fontSize: "var(--text-xs)",
+            marginBottom: 10,
+            fontStyle: "italic",
+          }}
+        >
+          {message}
+        </p>
+      )}
+
+      {/* ── Field before → after rows ───────────────────────────────────── */}
       {confirmation.fields_to_change.length > 0 && (
         <div
           style={{
@@ -141,30 +201,52 @@ export const ConfirmActionCard = ({
           }}
         >
           {confirmation.fields_to_change.map((fc, i) => (
-            <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-              <span
-                style={{
-                  fontSize: "var(--text-xs)",
-                  fontFamily: "var(--font-mono)",
-                  color: "hsl(var(--muted-foreground))",
-                  minWidth: 100,
-                }}
-              >
-                {fc.field}
-              </span>
+            <div
+              key={i}
+              style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}
+            >
+              {/* Italian field label */}
               <span
                 style={{
                   fontSize: "var(--text-xs)",
                   color: "hsl(var(--muted-foreground))",
-                  background: "hsl(var(--muted))",
-                  padding: "1px 6px",
-                  borderRadius: 3,
-                  textDecoration: "line-through",
+                  minWidth: 120,
+                  fontWeight: 500,
                 }}
               >
-                {formatValue(fc.before)}
+                {FIELD_LABELS[fc.field] ?? fc.field}
               </span>
+
+              {/* Before: null → plain "—", has value → struck-through muted red */}
+              {fc.before == null ? (
+                <span
+                  style={{
+                    fontSize: "var(--text-xs)",
+                    color: "hsl(var(--muted-foreground))",
+                    padding: "1px 6px",
+                  }}
+                >
+                  —
+                </span>
+              ) : (
+                <span
+                  style={{
+                    fontSize: "var(--text-xs)",
+                    color: "hsl(0 60% 55%)",
+                    background: "hsl(0 60% 55% / 0.08)",
+                    padding: "1px 6px",
+                    borderRadius: 3,
+                    textDecoration: "line-through",
+                    border: "1px solid hsl(0 60% 55% / 0.2)",
+                  }}
+                >
+                  {formatValue(fc.before)}
+                </span>
+              )}
+
               <ArrowRight size={10} style={{ color: "hsl(var(--muted-foreground))", flexShrink: 0 }} />
+
+              {/* After: always in primary/cyan */}
               <span
                 style={{
                   fontSize: "var(--text-xs)",
@@ -183,7 +265,7 @@ export const ConfirmActionCard = ({
         </div>
       )}
 
-      {/* Action buttons */}
+      {/* ── Action buttons ───────────────────────────────────────────────── */}
       <div style={{ display: "flex", gap: 8 }}>
         <button
           onClick={onCancel}

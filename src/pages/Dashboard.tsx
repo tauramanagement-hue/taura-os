@@ -102,12 +102,12 @@ const DashboardPage = () => {
     const brandContracts = allContracts.filter((c: any) => isBrandDeal(c.contract_type));
     const agencyContracts = allContracts.filter((c: any) => !isBrandDeal(c.contract_type));
 
-    // Filtra per il periodo corrente: un contratto appartiene al periodo in cui è iniziato
+    // Filtra per il periodo corrente: un contratto è incluso se è attivo (anche parzialmente) nel periodo
     const periodBrandDeals = brandContracts.filter((c: any) =>
-      isDateInRange(c.start_date, range.start, range.end)
+      isContractActiveInPeriod(c.start_date, c.end_date, range.start, range.end)
     );
     const periodAgencyContracts = agencyContracts.filter((c: any) =>
-      isDateInRange(c.start_date, range.start, range.end)
+      isContractActiveInPeriod(c.start_date, c.end_date, range.start, range.end)
     );
 
     // Monte Deal = solo deal brand-talent attivi nel periodo
@@ -143,10 +143,10 @@ const DashboardPage = () => {
     // Periodo precedente per confronto
     const prevRange = getPrevPeriodRange(period);
     const prevBrandDeals = brandContracts.filter((c: any) =>
-      isDateInRange(c.start_date, prevRange.start, prevRange.end)
+      isContractActiveInPeriod(c.start_date, c.end_date, prevRange.start, prevRange.end)
     );
     const prevAgencyContracts = agencyContracts.filter((c: any) =>
-      isDateInRange(c.start_date, prevRange.start, prevRange.end)
+      isContractActiveInPeriod(c.start_date, c.end_date, prevRange.start, prevRange.end)
     );
     const prevActiveBrandDeals = prevBrandDeals.filter((c: any) => c.status === "active" || !c.status);
     const prevRevenue = prevActiveBrandDeals.reduce((sum: number, c: any) => sum + (c.value || 0), 0);
@@ -164,26 +164,33 @@ const DashboardPage = () => {
 
     const monthLabels = ["Gen", "Feb", "Mar", "Apr", "Mag", "Giu", "Lug", "Ago", "Set", "Ott", "Nov", "Dic"];
     const monthMap: Record<string, number> = {};
+    const chartYear = range.start.getFullYear();
+    const todayForChart = new Date();
 
     if (period === "YTD") {
-      for (let i = 0; i < 12; i++) {
-        const key = `${new Date().getFullYear()}-${String(i + 1).padStart(2, "0")}`;
+      // Solo mesi passati/correnti — non mostrare mesi futuri
+      for (let i = 0; i <= todayForChart.getMonth(); i++) {
+        const key = `${chartYear}-${String(i + 1).padStart(2, "0")}`;
         monthMap[key] = 0;
       }
     } else {
       const startMonth = range.start.getMonth();
       const endMonth = range.end.getMonth();
       for (let i = startMonth; i <= endMonth; i++) {
-        const key = `${range.start.getFullYear()}-${String(i + 1).padStart(2, "0")}`;
+        const key = `${chartYear}-${String(i + 1).padStart(2, "0")}`;
         monthMap[key] = 0;
       }
     }
 
-    // Grafico mensile: solo deal brand-talent (non accordi agenzia)
-    brandContracts.forEach((c: any) => {
-      if (!c.start_date || !c.value) return;
-      const key = c.start_date.substring(0, 7);
-      if (key in monthMap) monthMap[key] += Number(c.value);
+    // Grafico mensile: portfolio attivo per mese (overlap, coerente con i KPI card)
+    const activeForChart = brandContracts.filter((c: any) => c.status === "active" || !c.status);
+    Object.keys(monthMap).forEach((key) => {
+      const [ky, km] = key.split("-").map(Number);
+      const mStart = new Date(ky, km - 1, 1);
+      const mEnd = new Date(ky, km, 0, 23, 59, 59);
+      monthMap[key] = activeForChart
+        .filter((c: any) => isContractActiveInPeriod(c.start_date, c.end_date, mStart, mEnd))
+        .reduce((sum: number, c: any) => sum + (Number(c.value) || 0), 0);
     });
 
     const mr = Object.entries(monthMap).map(([key, val]) => ({

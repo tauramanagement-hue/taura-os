@@ -298,15 +298,47 @@ async function executeTool(
       // Resolve ID via hint if needed
       let id = tool.deliverable_id;
       if (!id && tool.deliverable_hint) {
-        const { data } = await adminClient
-          .from("campaign_deliverables")
-          .select("id, content_type, scheduled_date, athletes(full_name), campaigns(brand)")
-          .limit(50);
-        const hint = normalizeText(tool.deliverable_hint);
-        const match = (data || []).find((d: { content_type?: string; scheduled_date?: string; athletes?: { full_name?: string }; campaigns?: { brand?: string } }) => {
-          const hay = normalizeText(`${d.content_type} ${d.scheduled_date} ${(d.athletes as { full_name?: string })?.full_name} ${(d.campaigns as { brand?: string })?.brand}`);
-          return hint.split(" ").filter((t) => t.length > 2).every((t) => hay.includes(t));
+        // Step 1: get campaign IDs scoped to this agency.
+        // NOTE: nested .eq("campaigns.agency_id") is silently ignored by Supabase JS
+        // without !inner syntax — always do a two-step query instead.
+        const { data: agencyCampaigns } = await adminClient
+          .from("campaigns")
+          .select("id")
+          .eq("agency_id", agencyId);
+        const campaignIds = (agencyCampaigns ?? []).map((c: { id: string }) => c.id);
+
+        // Step 2: fetch only deliverables belonging to those campaigns
+        const { data } = campaignIds.length
+          ? await adminClient
+              .from("campaign_deliverables")
+              .select("id, content_type, scheduled_date, athlete_id, athletes(full_name), campaign_id, campaigns(brand)")
+              .in("campaign_id", campaignIds)
+          : { data: [] };
+
+        console.log(
+          "[executeTool] deliverable hint:", tool.deliverable_hint,
+          "| agency campaigns:", campaignIds.length,
+          "| deliverables fetched:", (data ?? []).length,
+        );
+
+        const hint = normalizeText(tool.deliverable_hint ?? "");
+        const hintTokens = hint.split(" ").filter((t: string) => t.length > 2);
+
+        const match = (data || []).find((d: {
+          content_type?: string;
+          scheduled_date?: string;
+          athletes?: { full_name?: string };
+          campaigns?: { brand?: string };
+        }) => {
+          const athleteName = normalizeText((d.athletes as { full_name?: string })?.full_name ?? "");
+          const brandName   = normalizeText((d.campaigns as { brand?: string })?.brand ?? "");
+          // Match if hint tokens overlap with athlete name OR brand name (more permissive than .every())
+          const athleteMatch = hintTokens.some((t: string) => athleteName.includes(t));
+          const brandMatch   = hintTokens.some((t: string) => brandName.includes(t));
+          return athleteMatch || brandMatch;
         });
+
+        console.log("[executeTool] matched deliverable:", match?.id ?? "none");
         id = match?.id;
       }
       if (!id) return "⚠️ Deliverable non trovato. Specifica atleta, tipo contenuto e data.";
@@ -423,9 +455,15 @@ async function detectActionAndReturnConfirmation(
   if (!anthropicKey) return null;
 
   try {
+    // 10s hard timeout — prevents this call from hanging forever when
+    // Anthropic is slow or the response shape is unexpected.
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10_000);
+
     // Call Anthropic non-streaming with tool definitions
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
+      signal: controller.signal,
       headers: {
         "x-api-key": anthropicKey,
         "anthropic-version": "2023-06-01",
@@ -442,6 +480,7 @@ async function detectActionAndReturnConfirmation(
         messages: sanitizeMessages(messages.slice(-6)),
       }),
     });
+    clearTimeout(timeoutId);
 
     if (!res.ok) {
       const errBody = await res.text().catch(() => "");
@@ -554,8 +593,12 @@ async function detectActionAndReturnConfirmation(
       },
     );
   } catch (e) {
-    console.error("[chat] action detection error:", e);
-    return null; // fall through to normal chat
+    if (e instanceof Error && e.name === "AbortError") {
+      console.warn("[detectAction] timeout after 10s — falling through to normal chat");
+    } else {
+      console.error("[chat] action detection error:", e);
+    }
+    return null; // always fall through to normal chat
   }
 }
 
@@ -585,6 +628,27 @@ async function fetchFileContent(
   } catch {
     return null;
   }
+}
+
+// ─── Context compression for ranking / comparison queries ─────────────────
+// Strips per-deliverable rows (noise for ranking) while keeping roster,
+// contract deadlines, conflicts and campaign counts.
+// Applied only when isRankingQuery && contextBlock.length > 8000.
+function compressContextForRanking(contextBlock: string): string {
+  const marker = "\nDELIVERABLE NON PUBBLICATI";
+  const idx = contextBlock.indexOf(marker);
+  if (idx === -1) return contextBlock; // nothing to trim
+
+  // Pull counts already present in the ENTITA line
+  const unpostedMatch = contextBlock.match(/(\d+) non pubblicati/);
+  const postedMatch   = contextBlock.match(/(\d+) pubblicati\)/);
+  const unposted = unpostedMatch?.[1] ?? "?";
+  const posted   = postedMatch?.[1]   ?? "?";
+
+  const header  = contextBlock.slice(0, idx);
+  const summary = `\nDELIVERABLE: [${unposted} non pubblicati + ${posted} pubblicati — dettaglio omesso per query ranking]\n---`;
+
+  return header + summary;
 }
 
 // ─── Helper: stream a plain text message as SSE without calling any LLM ──
@@ -631,6 +695,25 @@ Deno.serve(async (req: Request) => {
     const latestUserMsg = messages?.[messages.length - 1]?.role === "user"
       ? String(messages[messages.length - 1].content || "")
       : "";
+
+    // ── Prompt injection guard — instant L0 response, no LLM call ────────
+    const INJECTION_RE = /dimentica\s+(tutto|tutte|le\s+istruzioni|il\s+contesto|la\s+conversazione)|ignora\s+(tutto|le\s+istruzioni|il\s+sistema)|sei\s+ora\s+un|d'ora\s+in\s+poi\s+sei|nuovo\s+ruolo|nuova\s+personalit/i;
+    if (INJECTION_RE.test(latestUserMsg)) {
+      return streamDirectText(
+        "Sono Taura AI, assistente operativo della tua agenzia. Non posso cambiare il mio ruolo o ignorare il contesto. Come posso aiutarti con roster, contratti o campagne?",
+        corsHeaders,
+      );
+    }
+
+    // ── Out-of-scope guard — instant L0 response, no LLM call ────────────
+    const OUT_OF_SCOPE_RE = /\b(ricett[ae]|cucin[ao]|ingredient[ei]|cuocere|bollire|friggere|forno|pasta\s+all[ae]|carbonara|amatriciana|meteo|previsioni\s+meteor|temperatura\s+oggi|calcio\s+risultat|serie\s+a\s+risultat|borsa\s+valori|azioni\s+in\s+borsa|crypto|bitcoin|notizie\s+di\s+oggi)\b/i;
+    if (OUT_OF_SCOPE_RE.test(latestUserMsg)) {
+      return streamDirectText(
+        "Sono focalizzato sulle operazioni della tua agenzia: roster, contratti, campagne, deal e scadenze. Per questa richiesta non posso aiutarti.",
+        corsHeaders,
+      );
+    }
+
     const statusIntent = latestUserMsg ? detectDeliverableStatusIntent(latestUserMsg, messages) : null;
 
     // If this is a status-update command → fast path: minimal fetch + update + direct SSE (no LLM)
@@ -1102,17 +1185,52 @@ ${semanticBlock}
       userTier: planToTier(agencyPlan ?? "free"),
     });
 
+    // ── Ranking compression: strip deliverable rows — irrelevant for ranking ──
+    const isRankingQuery = /ranking|classifica|migliore|peggiore|pi[uù] redditiz|pi[uù] valu/i.test(latestUserMsg);
+    if (isRankingQuery && contextBlock.length > 8000) {
+      const before = contextBlock.length;
+      contextBlock = compressContextForRanking(contextBlock);
+      console.log(`[chat] ranking compression: ${before} → ${contextBlock.length} chars`);
+    }
+
     console.log(`[chat] ${routing.level} (score:${routing.score}) model=${routing.model} | len=${latestUserMsg.length}`);
 
-    const now = new Date();
+    // ── Italy-aware calendar ───────────────────────────────────────────────
+    // Deno edge functions run in UTC. getDay()/getDate() return UTC values
+    // which are 1-2 hours behind Italy (CEST=UTC+2, CET=UTC+1), causing
+    // wrong day-of-week labels and broken week ranges near midnight.
+    //
+    // Fix: use Intl.DateTimeFormat("Europe/Rome") to get the Italian calendar
+    // date as a YYYY-MM-DD string, then build a synthetic UTC-midnight Date
+    // from it. All subsequent operations use getUTCDay/setUTCDate so they
+    // are never re-shifted by the runtime TZ. DST is handled automatically
+    // by the Intl API — no manual offset arithmetic needed.
+    const nowUTC = new Date();
+    // "sv" (Swedish) locale reliably formats dates as YYYY-MM-DD
+    const italyDateStr = new Intl.DateTimeFormat("sv", { timeZone: "Europe/Rome" }).format(nowUTC);
+    const [iy, im, id] = italyDateStr.split("-").map(Number);
+    // Synthetic UTC-midnight anchor representing today in Italy
+    const today = new Date(Date.UTC(iy, im - 1, id));
+
     const dayNames = ["Domenica", "Lunedi", "Martedi", "Mercoledi", "Giovedi", "Venerdi", "Sabato"];
-    const todayStr = now.toISOString().split("T")[0];
-    const dayOfWeek = dayNames[now.getDay()];
-    const dayIdx = now.getDay() === 0 ? 6 : now.getDay() - 1;
-    const thisMonday = new Date(now); thisMonday.setDate(now.getDate() - dayIdx);
-    const thisSunday = new Date(thisMonday); thisSunday.setDate(thisMonday.getDate() + 6);
-    const nextMonday = new Date(thisMonday); nextMonday.setDate(thisMonday.getDate() + 7);
-    const nextSunday = new Date(nextMonday); nextSunday.setDate(nextMonday.getDate() + 6);
+    const todayStr = italyDateStr;                                   // "2026-04-20"
+    const dayOfWeek = dayNames[today.getUTCDay()];                  // "Lunedi"
+    const tomorrowStr = new Date(Date.UTC(iy, im - 1, id + 1)).toISOString().split("T")[0];
+    const tomorrowName = dayNames[(today.getUTCDay() + 1) % 7];
+
+    // Mon=0 … Sun=6 offset from Monday
+    const dayIdx = today.getUTCDay() === 0 ? 6 : today.getUTCDay() - 1;
+    const thisMonday = new Date(Date.UTC(iy, im - 1, id - dayIdx));
+    const thisSunday = new Date(Date.UTC(iy, im - 1, id - dayIdx + 6));
+    const nextMonday = new Date(Date.UTC(iy, im - 1, id - dayIdx + 7));
+    const nextSunday = new Date(Date.UTC(iy, im - 1, id - dayIdx + 13));
+    // Build Mon–Sun label map for this week so the LLM never re-derives day names.
+    // i=0→Monday … i=6→Sunday; dayNames is 0=Sun,1=Mon…6=Sat so Mon = dayNames[1+i] clamped.
+    const weekDayLabels = ["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"];
+    const weekDayMap = Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(Date.UTC(iy, im - 1, id - dayIdx + i));
+      return `${weekDayLabels[i]} ${d.toISOString().split("T")[0]}`;
+    }).join(" | ");
     const fmt = (d: Date) => d.toISOString().split("T")[0];
 
     const depthInstruction = routing.level === "L1"
@@ -1187,12 +1305,15 @@ Dopo il blocco, aggiungi una riga: _"Copiato dal brief · verifica prima di invi
 
 PROFONDITA: ${depthInstruction}
 
-DATA E CALENDARIO:
+DATA E CALENDARIO (timezone: Europe/Rome — valori già corretti, NON ricalcolare):
 - Oggi: ${todayStr} (${dayOfWeek})
+- Domani: ${tomorrowStr} (${tomorrowName})
 - Questa settimana: ${fmt(thisMonday)} (Lun) → ${fmt(thisSunday)} (Dom)
 - Prossima settimana: ${fmt(nextMonday)} (Lun) → ${fmt(nextSunday)} (Dom)
+- Mappa giorni settimana corrente: ${weekDayMap}
 - Quando l'utente dice "settimana prossima" intende ${fmt(nextMonday)} → ${fmt(nextSunday)}, NON questa settimana.
 - Quando dice "questa settimana" intende ${fmt(thisMonday)} → ${fmt(thisSunday)}.
+- IMPORTANTE: usa SOLO le date e i nomi giorno elencati sopra. Non derivare nomi di giorni autonomamente da date ISO.
 
 ${contextBlock}`;
 
