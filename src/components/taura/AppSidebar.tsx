@@ -21,8 +21,6 @@ import {
   Sun,
   Moon,
   TrendingUp,
-  Handshake,
-  MessageSquare,
 } from "lucide-react";
 
 const MVP_MODE = true;
@@ -41,8 +39,9 @@ export const AppSidebar = () => {
     { id: "/dashboard", icon: LayoutDashboard, label: "Dashboard" },
     { id: "/athletes",  icon: Users,           label: "Atleti" },
     { id: "/contracts", icon: FileText,         label: "Contratti" },
-    { id: "/deals",     icon: Handshake,        label: "Deal" },
-    { id: "/chat",      icon: MessageSquare,    label: "Chat AI" },
+    { id: "/campaigns", icon: Megaphone,        label: "Campagne" },
+    { id: "/deadlines", icon: Clock,            label: "Scadenze" },
+    { id: "/calendar",  icon: Calendar,         label: "Calendario" },
   ];
 
   const navItems = [
