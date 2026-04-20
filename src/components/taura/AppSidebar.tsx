@@ -21,7 +21,11 @@ import {
   Sun,
   Moon,
   TrendingUp,
+  Handshake,
+  MessageSquare,
 } from "lucide-react";
+
+const MVP_MODE = true;
 
 export const AppSidebar = () => {
   const navigate = useNavigate();
@@ -32,6 +36,14 @@ export const AppSidebar = () => {
   const { theme, toggle } = useTheme();
   const [initials, setInitials] = useState("U");
   const [alertCount, setAlertCount] = useState(0);
+
+  const mvpItems = [
+    { id: "/dashboard", icon: LayoutDashboard, label: "Dashboard" },
+    { id: "/athletes",  icon: Users,           label: "Atleti" },
+    { id: "/contracts", icon: FileText,         label: "Contratti" },
+    { id: "/deals",     icon: Handshake,        label: "Deal" },
+    { id: "/chat",      icon: MessageSquare,    label: "Chat AI" },
+  ];
 
   const navItems = [
     { id: "/dashboard", icon: LayoutDashboard, label: "Command", show: true },
@@ -120,7 +132,7 @@ export const AppSidebar = () => {
 
       {/* Nav items */}
       <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 2, width: "100%", padding: "0 8px" }}>
-        {navItems.map((item) => {
+        {(MVP_MODE ? mvpItems : navItems).map((item) => {
           const active = location.pathname.startsWith(item.id);
           return (
             <button

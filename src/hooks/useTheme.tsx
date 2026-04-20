@@ -19,7 +19,6 @@ export const ThemeProvider = ({ children }: { children: ReactNode }) => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('taura-theme') as Theme;
       if (saved === 'light' || saved === 'dark') return saved;
-      return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
     }
     return 'dark';
   });
