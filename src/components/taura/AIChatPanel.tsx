@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { useLocation } from "react-router-dom";
 import { Send, Sparkles, X, Maximize2, Minimize2, Plus } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import rehypeSanitize from "rehype-sanitize";
@@ -7,6 +8,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useAgencyContext } from "@/hooks/useAgencyContext";
 import { sha256Hex, getFileExt } from "@/lib/fileHash";
 import { InstagramIcon, TikTokIcon, YouTubeIcon } from "@/components/taura/SocialIcons";
+import { getPromptsForRoute } from "@/lib/ai/contextual-prompts";
 import {
   ConfirmActionCard,
   type ConfirmationPayload,
@@ -36,15 +38,11 @@ const getModelLabel = (tier: string, modelName: string): string => {
   return tier;
 };
 
-const quickActions = [
-  "Scadenze urgenti",
-  "Conflitti attivi",
-  "Riepilogo roster",
-];
-
 export const AIChatPanel = ({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) => {
   const { user } = useAuth();
   const { labels } = useAgencyContext();
+  const location = useLocation();
+  const quickActions = getPromptsForRoute(location.pathname);
   const [messages, setMessages] = useState<Msg[]>([
     { role: "assistant", content: "Ciao! Sono **Taura AI**. Chiedimi qualsiasi cosa su roster, contratti o scadenze." },
   ]);
@@ -286,8 +284,11 @@ export const AIChatPanel = ({ collapsed, onToggle }: { collapsed: boolean; onTog
         return [...cleaned, { role: "error" as const, content: msg }];
       });
     } finally {
-      // Attach badge + strip typing + unlock input in ONE batch so no intermediate
-      // render shows the badge while isLoading is still true (which blocks the input).
+      // Unblock input first — tied to stream ending, not to badge rendering.
+      // tier/modelName are hoisted as `let` above so they're always readable here.
+      setIsLoading(false);
+      // Strip typing indicator and attach badge in a separate state update.
+      // Ordering: input unblocks → badge appears, never the reverse.
       setMessages(prev => {
         const withoutTyping = prev.filter(m => m.role !== "typing");
         if (assistantSoFar && tier) {
@@ -299,7 +300,6 @@ export const AIChatPanel = ({ collapsed, onToggle }: { collapsed: boolean; onTog
         }
         return withoutTyping;
       });
-      setIsLoading(false);
     }
   };
 

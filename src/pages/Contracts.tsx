@@ -4,9 +4,10 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { Pill } from "@/components/taura/ui-primitives";
 import { sha256Hex, getFileExt } from "@/lib/fileHash";
-import { Upload, Search, Trash2 } from "lucide-react";
+import { Upload, Search, Trash2, FileText } from "lucide-react";
 import { toast } from "sonner";
 import { InstagramIcon, TikTokIcon, YouTubeIcon } from "@/components/taura/SocialIcons";
+import EmptyState from "@/components/taura/EmptyState";
 
 interface ContractRow {
   id: string;
@@ -366,12 +367,20 @@ const ContractsPage = () => {
           ))}
         </div>
       ) : filtered.length === 0 ? (
-        <div className="text-center py-16">
-          <div className="text-4xl mb-3">📄</div>
-          <div className="text-foreground font-bold mb-1">{searchQuery ? "Nessun risultato" : "Nessun contratto"}</div>
-          <div className="text-muted-foreground text-sm mb-4">{searchQuery ? "Prova con un'altra ricerca." : "Carica il primo contratto e l'AI lo analizzerà automaticamente."}</div>
-          {!searchQuery && <button onClick={() => fileInputRef.current?.click()} className="bg-primary text-primary-foreground px-5 py-2 rounded-lg text-[12px] font-bold cursor-pointer hover:opacity-90 transition-opacity flex items-center gap-2 mx-auto"><Upload className="w-3.5 h-3.5" /> Carica contratto</button>}
-        </div>
+        searchQuery ? (
+          <div className="text-center py-16">
+            <div className="text-foreground font-bold mb-1">Nessun risultato</div>
+            <div className="text-muted-foreground text-sm">Prova con un'altra ricerca.</div>
+          </div>
+        ) : (
+          <EmptyState
+            icon={FileText}
+            title="Nessun contratto nel vault"
+            description="Carica il primo contratto — l'AI estrae clausole e rileva conflitti automaticamente"
+            ctaLabel="Carica contratto"
+            onCta={() => fileInputRef.current?.click()}
+          />
+        )
       ) : (
         <div className="bg-card rounded-xl border border-border overflow-hidden">
           <div className="grid grid-cols-[1.3fr_1fr_0.8fr_0.7fr_0.5fr_0.5fr_0.8fr] gap-3 px-5 py-3 bg-secondary border-b border-border items-center text-left">

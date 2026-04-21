@@ -781,6 +781,44 @@ export type Database = {
           },
         ]
       }
+      waitlist: {
+        Row: {
+          agency_id: string | null
+          created_at: string | null
+          email: string
+          id: string
+          plan_interest: string | null
+          source: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          agency_id?: string | null
+          created_at?: string | null
+          email: string
+          id?: string
+          plan_interest?: string | null
+          source?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          agency_id?: string | null
+          created_at?: string | null
+          email?: string
+          id?: string
+          plan_interest?: string | null
+          source?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "waitlist_agency_id_fkey"
+            columns: ["agency_id"]
+            isOneToOne: false
+            referencedRelation: "agencies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never

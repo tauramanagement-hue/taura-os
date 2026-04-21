@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { DashboardLayout } from "@/components/taura/DashboardLayout";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
-import { Plus, AlertTriangle, CheckCircle2, Clock } from "lucide-react";
+import { Plus, AlertTriangle, CheckCircle2, Clock, Lock } from "lucide-react";
 import { toast } from "sonner";
 
 interface Mandate {
@@ -73,10 +73,13 @@ export default function Mandates() {
             <h1 className="text-2xl font-black text-foreground">Gestione Mandati</h1>
             <p className="text-sm text-muted-foreground">Mandati FIGC/FIFA con scadenze e alert</p>
           </div>
-          <button disabled title="Coming soon" className="px-4 py-2 bg-primary text-primary-foreground rounded-lg font-semibold flex items-center gap-2 opacity-50 cursor-not-allowed">
-            <Plus className="w-4 h-4" />
-            Nuovo mandato
-          </button>
+          <a
+            href="mailto:os@tauramanagement.com?subject=Early%20access:%20Nuovo%20mandato"
+            className="px-4 py-2 bg-primary text-primary-foreground rounded-lg font-semibold flex items-center gap-2 hover:opacity-90 transition-opacity cursor-pointer"
+          >
+            <Lock className="w-4 h-4" />
+            Richiedi accesso
+          </a>
         </div>
 
         <div className="grid grid-cols-4 gap-4">
@@ -167,8 +170,8 @@ export default function Mandates() {
           )}
         </div>
 
-        <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 text-xs text-amber-400/90">
-          ⚠️ <strong>Disclaimer legale:</strong> Questo sistema fornisce promemoria e tracking delle scadenze. Non sostituisce la consulenza legale. L'agenzia è responsabile della compliance con le normative FIGC/FIFA/CONI.
+        <div className="mt-8 text-xs text-muted-foreground border-t border-border pt-4">
+          ℹ Questo sistema fornisce promemoria e tracking delle scadenze. Non sostituisce la consulenza legale. L'agenzia è responsabile della compliance con le normative FIGC/FIFA/CONI.
         </div>
       </div>
     </DashboardLayout>

@@ -2,7 +2,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "@/hooks/useAuth";
 import { AgencyProvider } from "@/hooks/useAgencyContext";
 import { ThemeProvider } from "@/hooks/useTheme";
@@ -23,7 +23,6 @@ import Alerts from "./pages/Alerts";
 import Reports from "./pages/Reports";
 import ReportMonteContratti from "./pages/ReportMonteContratti";
 import ProofPackage from "./pages/ProofPackage";
-import AILab from "./pages/AILab";
 import Settings from "./pages/Settings";
 import Transfers from "./pages/Transfers";
 import Mandates from "./pages/Mandates";
@@ -53,8 +52,8 @@ const App = () => (
             <Route path="/pricing" element={<Pricing />} />
             <Route path="/onboarding" element={<Onboarding />} />
 
-            {/* Protected standalone page (no sidebar): dedicated AI training lab */}
-            <Route path="/ai-lab" element={<ProtectedRoute><AILab /></ProtectedRoute>} />
+            {/* INTERNAL routes — removed from router, redirect to dashboard */}
+            <Route path="/ai-lab" element={<Navigate to="/dashboard" replace />} />
 
             {/* Protected routes: sidebar + AI panel — require auth */}
             <Route element={<ProtectedRoute><DashboardLayout /></ProtectedRoute>}>

@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { DashboardLayout } from "@/components/taura/DashboardLayout";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
-import { Plus, AlertTriangle } from "lucide-react";
+import { Plus, AlertTriangle, Lock } from "lucide-react";
 import { toast } from "sonner";
 
 interface TransferWindow {
@@ -112,10 +112,13 @@ export default function Transfers() {
             <h1 className="text-2xl font-black text-foreground">Transfer Window Tracker</h1>
             <p className="text-sm text-muted-foreground">Gestisci trasferimenti e finestre di mercato</p>
           </div>
-          <button disabled title="Coming soon" className="px-4 py-2 bg-primary text-primary-foreground rounded-lg font-semibold flex items-center gap-2 opacity-50 cursor-not-allowed">
-            <Plus className="w-4 h-4" />
-            Nuova trattativa
-          </button>
+          <a
+            href="mailto:os@tauramanagement.com?subject=Early%20access:%20Nuova%20trattativa"
+            className="px-4 py-2 bg-primary text-primary-foreground rounded-lg font-semibold flex items-center gap-2 hover:opacity-90 transition-opacity cursor-pointer"
+          >
+            <Lock className="w-4 h-4" />
+            Richiedi accesso
+          </a>
         </div>
 
         {urgentTransfers.length > 0 && (

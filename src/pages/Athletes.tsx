@@ -6,6 +6,7 @@ import { Search, Plus, Users } from "lucide-react";
 import { toast } from "sonner";
 import AthleteCard, { type Athlete } from "@/components/taura/AthleteCard";
 import AthleteDetail from "@/components/taura/AthleteDetail";
+import EmptyState from "@/components/taura/EmptyState";
 
 const AthletesPage = () => {
   const navigate = useNavigate();
@@ -195,16 +196,21 @@ const AthletesPage = () => {
           ))}
         </div>
       ) : filtered.length === 0 ? (
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "60px 0", gap: 12 }}>
-          <p style={{ fontSize: "var(--text-sm)", color: "hsl(var(--muted-foreground))", fontFamily: "var(--font-mono)" }}>
-            {search ? "Nessun risultato per questa ricerca" : "Nessun talent nel roster"}
-          </p>
-          {!search && (
-            <button onClick={() => setShowAdd(true)} style={addBtnStyle} onMouseEnter={e => e.currentTarget.style.opacity = "0.88"} onMouseLeave={e => e.currentTarget.style.opacity = "1"}>
-              + Aggiungi il primo talent
-            </button>
-          )}
-        </div>
+        search ? (
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "60px 0" }}>
+            <p style={{ fontSize: "var(--text-sm)", color: "hsl(var(--muted-foreground))", fontFamily: "var(--font-mono)" }}>
+              Nessun risultato per questa ricerca
+            </p>
+          </div>
+        ) : (
+          <EmptyState
+            icon={Users}
+            title="Nessun talent nel roster"
+            description="Aggiungi il primo talent per iniziare a gestire contratti, deal e campagne"
+            ctaLabel="Aggiungi talent"
+            onCta={() => setShowAdd(true)}
+          />
+        )
       ) : (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 10 }}>
           {filtered.map((a) => (

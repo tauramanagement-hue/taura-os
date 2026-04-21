@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { DashboardLayout } from "@/components/taura/DashboardLayout";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
-import { Plus, Unlock } from "lucide-react";
+import { Plus, Lock } from "lucide-react";
 import { toast } from "sonner";
 
 interface Prospect {
@@ -79,10 +79,13 @@ export default function Scouting() {
             <h1 className="text-2xl font-black text-foreground">Scouting Pipeline</h1>
             <p className="text-sm text-muted-foreground">Traccia e gestisci i prospect in pipeline</p>
           </div>
-          <button disabled title="Coming soon" className="px-4 py-2 bg-primary text-primary-foreground rounded-lg font-semibold flex items-center gap-2 opacity-50 cursor-not-allowed">
-            <Plus className="w-4 h-4" />
-            Aggiungi prospect
-          </button>
+          <a
+            href="mailto:os@tauramanagement.com?subject=Early%20access:%20Scouting%20Pipeline"
+            className="px-4 py-2 bg-primary text-primary-foreground rounded-lg font-semibold flex items-center gap-2 hover:opacity-90 transition-opacity cursor-pointer"
+          >
+            <Lock className="w-4 h-4" />
+            Richiedi accesso
+          </a>
         </div>
 
         <div className="grid grid-cols-4 gap-4">

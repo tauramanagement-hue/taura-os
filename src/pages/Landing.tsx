@@ -1,157 +1,800 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { TauraLogo, Pill, MiniChart } from "@/components/taura/ui-primitives";
-import { motion } from "framer-motion";
+import { motion, useScroll, useTransform, AnimatePresence } from "framer-motion";
+import { TauraLogo, MiniChart } from "@/components/taura/ui-primitives";
+import PlansGrid, { type Plan } from "@/components/taura/PlansGrid";
+import {
+  FileText,
+  ShieldAlert,
+  Sparkles,
+  Users,
+  BarChart3,
+  MessageSquare,
+  ChevronDown,
+  ArrowRight,
+  Clock,
+  Zap,
+  TrendingUp,
+  Megaphone,
+  Bell,
+  Bot,
+  Check,
+  Upload,
+  Send,
+} from "lucide-react";
+
+const EASE = [0.22, 1, 0.36, 1] as const;
 
 const features = [
-  { icon: "⬡", title: "Command Center", desc: "Dashboard real-time con revenue, scadenze, pipeline e KPI.", color: "text-taura-accent", bg: "bg-taura-accent/10" },
-  { icon: "▤", title: "Contract Vault", desc: "Upload PDF → clausole estratte in 45 sec. Conflict Scanner automatico.", color: "text-taura-blue", bg: "bg-taura-blue/10" },
-  { icon: "◇", title: "Deal Intelligence", desc: "Comparabili mercato, pricing suggerito, scenari negoziali.", color: "text-taura-purple", bg: "bg-taura-purple/10" },
-  { icon: "▧", title: "Sponsor Proof", desc: "Report ROI in 30 secondi. PDF branded per il rinnovo.", color: "text-taura-pink", bg: "bg-taura-pink/10" },
-  { icon: "◎", title: "Roster Management", desc: "Profili atleti con contratti, deal, revenue, social, timeline.", color: "text-taura-orange", bg: "bg-taura-orange/10" },
-  { icon: "◈", title: "AI Assistant", desc: "Parla in italiano, l'AI esegue. L'interfaccia primaria del sistema.", color: "text-taura-green", bg: "bg-taura-green/10" },
+  { icon: BarChart3, title: "Command Center", desc: "Dashboard real-time con revenue, scadenze, pipeline e KPI.", tint: "primary" },
+  { icon: FileText, title: "Contract Vault", desc: "Upload PDF → clausole estratte in 45s con accuracy >99%. Conflict Scanner automatico.", tint: "blue" },
+  { icon: Sparkles, title: "Deal Intelligence", desc: "Comparabili di mercato, pricing suggerito, scenari negoziali.", tint: "purple" },
+  { icon: Megaphone, title: "Campagne AI", desc: "Carica il brief del brand: l'AI struttura la campagna, estrae i deliverable e genera i messaggi per i talent.", tint: "pink" },
+  { icon: Users, title: "Roster Management", desc: "Profili talent completi: contratti, deal, social, timeline.", tint: "orange" },
+  { icon: Bell, title: "Notifiche Intelligenti", desc: "Alert automatici su conflitti, scadenze e approvazioni. Zero cose che scivolano via.", tint: "green" },
+] as const;
+
+const tintBg: Record<string, string> = {
+  primary: "bg-primary/10 text-primary",
+  blue: "bg-taura-blue/10 text-taura-blue",
+  purple: "bg-taura-purple/10 text-taura-purple",
+  pink: "bg-taura-pink/10 text-taura-pink",
+  orange: "bg-taura-orange/10 text-taura-orange",
+  green: "bg-taura-green/10 text-taura-green",
+};
+
+const steps = [
+  { n: "01", title: "Carichi un contratto", desc: "PDF, DOCX, immagine — qualsiasi formato. L'AI legge e struttura in 45 secondi." },
+  { n: "02", title: "Taura connette il roster", desc: "Clausole, deal, scadenze e conflitti appaiono automaticamente nel tuo Command Center." },
+  { n: "03", title: "Chiudi più deal", desc: "Chiedi all'AI qualsiasi cosa. Genera Proof Package sponsor, previsioni revenue, report in 30 secondi." },
 ];
+
+const roiStats = [
+  { k: "45s", label: "per analizzare un contratto", vs: "vs 4 ore a mano" },
+  { k: "€15k", label: "conflitti evitati in media", vs: "per agenzia nei primi 3 mesi" },
+  { k: "30s", label: "per un Proof Package sponsor", vs: "vs 3 giorni di lavoro" },
+  { k: "8x", label: "velocità su ricerca clausole", vs: "vs vecchi vault PDF" },
+];
+
+const faqs = [
+  {
+    q: "I miei dati dei contratti sono al sicuro?",
+    a: "Sì. Ogni agenzia è isolata via Row-Level Security a livello database. I documenti sono crittografati at-rest su Supabase Storage. Nessuno (né Taura né altri clienti) può vedere i tuoi file.",
+  },
+  {
+    q: "Quanto tempo serve per iniziare?",
+    a: "Setup in 90 secondi: tipo agenzia, verticali, nome. I primi contratti sono utilizzabili dopo il primo upload (<1 minuto).",
+  },
+  {
+    q: "Come si migrano i contratti esistenti?",
+    a: "Upload bulk: carichi 50 PDF in una volta, l'AI li processa in parallelo. Per volumi >500 contratti ti affianchiamo 1-on-1.",
+  },
+  {
+    q: "L'AI sostituisce il mio team legale?",
+    a: "No. Taura accelera: estrae clausole, segnala conflitti, suggerisce pricing. Le decisioni restano umane. L'obiettivo è farti lavorare su 10 talent come oggi lavori su 1.",
+  },
+  {
+    q: "Posso uscire quando voglio?",
+    a: "Sì, e puoi esportare tutti i tuoi dati in JSON e PDF in qualsiasi momento. Zero lock-in.",
+  },
+  {
+    q: "Quando apre la piattaforma?",
+    a: "Siamo in beta privata. Le prime 5 agenzie che richiedono accesso entrano gratis per 6 mesi e bloccano il prezzo al rinnovo.",
+  },
+];
+
+const Counter = ({ value }: { value: string }) => {
+  const [shown, setShown] = useState(value);
+  useEffect(() => { setShown(value); }, [value]);
+  return <span>{shown}</span>;
+};
 
 const LandingPage = () => {
   const navigate = useNavigate();
+  const { scrollY } = useScroll();
+  const heroY = useTransform(scrollY, [0, 600], [0, -80]);
+  const heroOpacity = useTransform(scrollY, [0, 400], [1, 0.3]);
+  const [openFaq, setOpenFaq] = useState<number | null>(0);
+
+  const goPlans = (plan?: Plan) => {
+    const q = plan ? `?plan=${plan.id}` : "";
+    navigate(`/pricing${q}`);
+  };
+
+  useEffect(() => {
+    document.title = "Taura OS — L'ambiente operativo AI-native per agenzie";
+  }, []);
 
   return (
-    <div className="min-h-screen overflow-y-auto bg-background relative">
-      <div className="fixed top-[-200px] right-[-200px] w-[600px] h-[600px] ambient-glow pointer-events-none" />
-      <div className="fixed bottom-[-300px] left-[-100px] w-[500px] h-[500px] ambient-glow-blue pointer-events-none" />
+    <div className="min-h-screen bg-background text-foreground overflow-x-hidden">
+      {/* Ambient gradients */}
+      <div className="fixed inset-0 pointer-events-none">
+        <div className="absolute top-[-30%] right-[-10%] w-[900px] h-[900px] rounded-full blur-3xl opacity-[0.18]"
+          style={{ background: "radial-gradient(circle, hsl(var(--primary)) 0%, transparent 60%)" }} />
+        <div className="absolute top-[40%] left-[-20%] w-[800px] h-[800px] rounded-full blur-3xl opacity-[0.12]"
+          style={{ background: "radial-gradient(circle, hsl(220, 90%, 60%) 0%, transparent 60%)" }} />
+      </div>
 
-      {/* Nav */}
-      <nav className="max-w-[1140px] mx-auto px-10 py-5 flex items-center justify-between">
-        <div className="flex items-center gap-2.5">
-          <TauraLogo size={28} />
-          <span className="font-bold text-[16px] text-foreground tracking-tight">TAURA</span>
-          <span className="text-[10px] text-taura-text4 font-mono bg-taura-surface px-1.5 py-0.5 rounded">OS</span>
-        </div>
-        <div className="flex items-center gap-5">
-          <span onClick={() => navigate("/pricing")} className="text-taura-text2 text-[12px] cursor-pointer font-medium hover:text-foreground transition-colors">Pricing</span>
-          <span title="Coming soon" className="text-taura-text2 text-[12px] font-medium opacity-50 cursor-not-allowed transition-colors">Prodotto</span>
-          <div className="w-px h-3.5 bg-border" />
-          <span onClick={() => navigate("/login")} className="text-foreground text-[12px] cursor-pointer font-semibold">Accedi</span>
-          <button onClick={() => navigate("/login")} className="bg-primary text-primary-foreground px-4 py-1.5 rounded-md text-[12px] font-bold cursor-pointer hover:opacity-90 transition-opacity">
-            Inizia gratis
-          </button>
+      {/* Sticky glass nav */}
+      <nav className="sticky top-0 z-50 backdrop-blur-xl bg-background/70 border-b border-border/40">
+        <div className="max-w-[1180px] mx-auto px-8 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-2.5 cursor-pointer" onClick={() => navigate("/")}>
+            <TauraLogo size={28} />
+            <span className="font-bold text-[15px] tracking-tight">TAURA</span>
+            <span className="text-[9px] text-muted-foreground font-mono bg-secondary px-1.5 py-0.5 rounded">OS</span>
+          </div>
+          <div className="flex items-center gap-6">
+            <a href="#come-funziona" className="text-[12px] text-muted-foreground hover:text-foreground transition-colors hidden md:block">Come funziona</a>
+            <a href="#roi" className="text-[12px] text-muted-foreground hover:text-foreground transition-colors hidden md:block">Risultati</a>
+            <a href="#piani" className="text-[12px] text-muted-foreground hover:text-foreground transition-colors hidden md:block">Piani</a>
+            <span onClick={() => navigate("/login")} className="text-[12px] font-semibold cursor-pointer hover:text-primary transition-colors">Accedi</span>
+            <button
+              onClick={() => navigate("/pricing")}
+              className="bg-primary text-primary-foreground px-4 py-2 rounded-lg text-[12px] font-semibold cursor-pointer hover:shadow-lg hover:shadow-primary/30 transition-all"
+            >
+              Richiedi accesso
+            </button>
+          </div>
         </div>
       </nav>
 
-      {/* Hero */}
-      <section className="max-w-[1140px] mx-auto px-10 pt-16 pb-10 flex gap-12 items-center">
-        <motion.div className="flex-[1.1]" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
-          <div className="inline-flex items-center gap-1.5 bg-taura-surface border border-border rounded-full px-3 py-0.5 mb-5">
-            <div className="w-[6px] h-[6px] rounded-full bg-taura-green" style={{ boxShadow: "0 0 8px hsl(160, 67%, 52%, 0.6)" }} />
-            <span className="text-[10px] text-taura-text2 font-medium">Powered by AI</span>
-          </div>
+      {/* HERO */}
+      <section className="relative max-w-[1180px] mx-auto px-8 pt-24 pb-24">
+        {/* Text only — parallax scroll */}
+        <motion.div style={{ y: heroY, opacity: heroOpacity }} className="relative z-10">
+          <motion.div
+            initial={{ opacity: 0, y: 24 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.7, ease: EASE }}
+            className="text-center max-w-[840px] mx-auto"
+          >
+            <div className="inline-flex items-center gap-2 bg-card/60 backdrop-blur border border-border/60 rounded-full px-3.5 py-1.5 mb-8">
+              <span className="w-1.5 h-1.5 rounded-full bg-taura-green" style={{ boxShadow: "0 0 10px hsl(160, 67%, 52%, 0.8)" }} />
+              <span className="text-[11px] font-medium text-muted-foreground">Beta privata · prime 5 agenzie gratis</span>
+            </div>
 
-          <h1 className="text-[44px] font-bold leading-[1.08] text-foreground mb-4 tracking-tight">
-            L'ambiente operativo<br />
-            <span className="text-gradient">AI-native</span> per agenzie<br />
-            di talent e sport
-          </h1>
+            <h1 className="text-[56px] md:text-[72px] font-bold leading-[1.02] tracking-[-0.035em] mb-6">
+              L'ambiente operativo<br />
+              <span className="bg-gradient-to-r from-primary via-taura-accent to-taura-blue bg-clip-text text-transparent">
+                AI-native
+              </span>{" "}
+              per agenzie<br />
+              di talent e sport.
+            </h1>
 
-          <p className="text-[14px] text-taura-text2 leading-relaxed max-w-[440px] mb-7">
-            Contratti, talent, deal, campagne, sponsor, revenue — tutto in un unico sistema dove l'AI non è una feature, è il modo in cui lavori.
-          </p>
+            <p className="text-[17px] md:text-[19px] text-muted-foreground leading-relaxed max-w-[640px] mx-auto mb-10">
+              Contratti, talent, deal, campagne, sponsor, revenue — tutto in un unico sistema
+              dove l'AI non è una feature, è il modo in cui lavori.
+            </p>
 
-          <div className="flex gap-3 mb-5">
-            <button onClick={() => navigate("/login")} className="bg-primary text-primary-foreground px-7 py-3 rounded-lg text-[14px] font-bold cursor-pointer glow-accent hover:opacity-90 transition-opacity">
-              Inizia gratis →
-            </button>
-            <button disabled title="Coming soon" className="bg-taura-surface text-foreground border border-border px-5 py-3 rounded-lg text-[13px] font-semibold opacity-50 cursor-not-allowed transition-colors">
-              ▶ Demo
-            </button>
-          </div>
+            <div className="flex flex-col sm:flex-row gap-3 justify-center items-center">
+              <button
+                onClick={() => navigate("/pricing")}
+                className="group bg-primary text-primary-foreground px-7 py-3.5 rounded-xl text-[14px] font-semibold cursor-pointer hover:shadow-xl hover:shadow-primary/40 hover:-translate-y-0.5 transition-all flex items-center gap-2"
+              >
+                Richiedi accesso
+                <ArrowRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
+              </button>
+              <button
+                onClick={() => document.getElementById("come-funziona")?.scrollIntoView({ behavior: "smooth" })}
+                className="text-[13px] text-muted-foreground hover:text-foreground transition-colors font-medium flex items-center gap-1.5"
+              >
+                Scopri come funziona
+                <ChevronDown className="w-3.5 h-3.5" />
+              </button>
+            </div>
 
-          <div className="flex gap-5 text-[11px] text-taura-text3">
-            <span>✓ Free plan</span>
-            <span>✓ Setup 90 sec</span>
-            <span>✓ Dati crittografati</span>
-          </div>
+            <div className="mt-8 flex gap-6 justify-center text-[11px] text-muted-foreground">
+              <span className="flex items-center gap-1.5"><span className="w-1 h-1 rounded-full bg-taura-green" />Dati crittografati</span>
+              <span className="flex items-center gap-1.5"><span className="w-1 h-1 rounded-full bg-taura-green" />Setup 90s</span>
+              <span className="flex items-center gap-1.5"><span className="w-1 h-1 rounded-full bg-taura-green" />Zero lock-in</span>
+            </div>
+          </motion.div>
         </motion.div>
 
-        {/* Hero mockup */}
+        {/* Hero mockup — fuori dal parallax, nessun transform scroll */}
         <motion.div
-          className="flex-1 bg-card rounded-xl border border-border overflow-hidden"
-          initial={{ opacity: 0, y: 30 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5, delay: 0.15 }}
-          style={{ boxShadow: "0 20px 60px hsl(240, 27%, 5%, 0.8)" }}
+          initial={{ opacity: 0, y: 60, scale: 0.96 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          transition={{ duration: 0.9, delay: 0.2, ease: EASE }}
+          className="mt-16 mx-auto max-w-[920px] relative"
         >
-          <div className="flex gap-1.5 px-3 py-2 border-b border-border bg-secondary">
-            <div className="w-2 h-2 rounded-full bg-taura-red/40" />
-            <div className="w-2 h-2 rounded-full bg-taura-orange/40" />
-            <div className="w-2 h-2 rounded-full bg-taura-green/40" />
-            <span className="ml-auto text-[8px] text-taura-text4 font-mono">taura.app</span>
-          </div>
-          <div className="p-3">
-            <div className="grid grid-cols-2 gap-1.5 mb-2">
+          <div className="absolute inset-0 -bottom-10 blur-3xl opacity-60 pointer-events-none"
+            style={{ background: "radial-gradient(ellipse at center, hsl(var(--primary) / 0.25) 0%, transparent 70%)" }} />
+          <div className="relative rounded-2xl border border-border/60 bg-card overflow-hidden shadow-[0_40px_80px_-20px_rgba(0,0,0,0.6)]">
+            <div className="flex gap-1.5 px-4 py-2.5 border-b border-border/40 bg-secondary/50">
+              <div className="w-2.5 h-2.5 rounded-full bg-taura-red/50" />
+              <div className="w-2.5 h-2.5 rounded-full bg-taura-orange/50" />
+              <div className="w-2.5 h-2.5 rounded-full bg-taura-green/50" />
+              <span className="ml-auto text-[10px] text-muted-foreground font-mono">taura.app/dashboard</span>
+            </div>
+            <div className="p-5 grid grid-cols-3 gap-3">
               {[
-                { l: "REVENUE YTD", v: "€892k", c: "hsl(160, 67%, 52%)", d: [30, 35, 32, 45, 52, 48, 62, 58, 72, 78, 85, 92] },
-                { l: "CONFLITTI", v: "2 attivi", c: "hsl(348, 100%, 65%)", d: [1, 0, 2, 1, 3, 2, 1, 2, 2, 1, 2, 2] },
+                { l: "REVENUE YTD", v: "€892k", c: "hsl(160, 67%, 52%)", d: [30, 45, 52, 48, 62, 72, 78, 85, 92] },
+                { l: "CONTRATTI ATTIVI", v: "47", c: "hsl(220, 90%, 62%)", d: [22, 28, 32, 38, 42, 45, 47, 47, 47] },
+                { l: "CONFLITTI", v: "2", c: "hsl(348, 100%, 65%)", d: [4, 3, 2, 4, 5, 3, 2, 2, 2] },
               ].map((s, i) => (
-                <div key={i} className="bg-taura-surface rounded-lg p-2 border border-border">
-                  <div className="text-[7px] font-bold text-taura-text4 tracking-wider">{s.l}</div>
-                  <div className="text-base font-bold mt-0.5" style={{ color: s.c }}>{s.v}</div>
-                  <MiniChart data={s.d} color={s.c} h={22} />
-                </div>
+                <motion.div
+                  key={i}
+                  initial={{ opacity: 0, y: 12 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.4, delay: 0.5 + i * 0.08 }}
+                  className="bg-secondary/60 rounded-xl p-3 border border-border/50"
+                >
+                  <div className="text-[9px] font-bold text-muted-foreground tracking-wider">{s.l}</div>
+                  <div className="text-[22px] font-bold mt-1" style={{ color: s.c }}>{s.v}</div>
+                  <MiniChart data={s.d} color={s.c} h={28} />
+                </motion.div>
               ))}
             </div>
-            <div className="bg-taura-surface rounded-lg p-2.5 border border-border">
-              <div className="flex items-center gap-1.5 mb-1.5">
-                <div className="w-[5px] h-[5px] rounded-full bg-taura-accent" style={{ boxShadow: "0 0 6px hsl(170, 100%, 45%, 0.6)" }} />
-                <span className="text-[8px] text-taura-accent font-bold tracking-wider">TAURA AI</span>
+            <motion.div
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5, delay: 0.9 }}
+              className="mx-5 mb-5 bg-secondary/60 rounded-xl p-3 border border-primary/25"
+            >
+              <div className="flex items-center gap-2 mb-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-primary" style={{ boxShadow: "0 0 8px hsl(var(--primary) / 0.8)" }} />
+                <span className="text-[10px] text-primary font-bold tracking-wider">TAURA AI</span>
               </div>
-              <div className="text-[10px] text-taura-text2 leading-relaxed">
-                ⚠ Conflitto: deal Puma per Marco Rossi confligge con clausola 3.1 Adidas. Rischio penale €15k.
+              <div className="text-[12px] text-foreground/90 leading-relaxed">
+                ⚠ Conflitto rilevato: il deal Puma per Marco Rossi confligge con la clausola 3.1 del contratto Adidas. Rischio penale stimato <strong>€15k</strong>.
               </div>
-            </div>
+            </motion.div>
           </div>
         </motion.div>
       </section>
 
-      {/* Features */}
-      <section className="max-w-[1140px] mx-auto px-10 pt-14 pb-16">
-        <div className="text-center mb-10">
-          <h2 className="text-[24px] font-bold text-foreground tracking-tight">Un sistema, non un tool</h2>
-          <p className="text-taura-text3 text-[12px] mt-1.5">6 funzioni core che sostituiscono 10 software diversi</p>
-        </div>
-        <div className="grid grid-cols-3 gap-2.5">
-          {features.map((f, i) => (
+      {/* STATS STRIP */}
+      <section className="relative max-w-[1180px] mx-auto px-8 pb-24">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true, margin: "-100px" }}
+          transition={{ duration: 0.6, ease: EASE }}
+          className="grid grid-cols-2 md:grid-cols-4 gap-px bg-border/40 rounded-2xl overflow-hidden border border-border/40"
+        >
+          {roiStats.map((s, i) => (
             <motion.div
               key={i}
-              className="bg-card rounded-xl p-5 border border-border hover:border-taura-border-light cursor-default transition-all duration-200"
-              initial={{ opacity: 0, y: 15 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.3, delay: 0.05 * i }}
+              initial={{ opacity: 0 }}
+              whileInView={{ opacity: 1 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.5, delay: i * 0.08 }}
+              className="bg-card/60 backdrop-blur p-6 md:p-8 text-center"
             >
-              <div className={`w-8 h-8 rounded-lg ${f.bg} flex items-center justify-center text-base ${f.color} mb-3`}>{f.icon}</div>
-              <h3 className="text-[13px] font-bold text-foreground mb-1">{f.title}</h3>
-              <p className="text-[11px] text-taura-text2 leading-relaxed">{f.desc}</p>
+              <div className="text-[38px] md:text-[44px] font-bold tracking-tight bg-gradient-to-b from-foreground to-foreground/60 bg-clip-text text-transparent">
+                <Counter value={s.k} />
+              </div>
+              <div className="text-[12px] font-semibold text-foreground mt-1">{s.label}</div>
+              <div className="text-[11px] text-muted-foreground mt-0.5">{s.vs}</div>
+            </motion.div>
+          ))}
+        </motion.div>
+      </section>
+
+      {/* COME FUNZIONA */}
+      <section id="come-funziona" className="relative max-w-[1180px] mx-auto px-8 py-24">
+        <motion.div
+          initial={{ opacity: 0, y: 16 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true, margin: "-100px" }}
+          transition={{ duration: 0.6, ease: EASE }}
+          className="text-center mb-16"
+        >
+          <div className="text-[11px] font-bold text-primary tracking-[0.2em] uppercase mb-3">Come funziona</div>
+          <h2 className="text-[40px] md:text-[52px] font-bold tracking-[-0.025em] leading-[1.05]">
+            Tre passi per<br />
+            ridurre il tuo carico operativo.
+          </h2>
+        </motion.div>
+
+        <div className="grid md:grid-cols-3 gap-5">
+          {steps.map((s, i) => (
+            <motion.div
+              key={i}
+              initial={{ opacity: 0, y: 30 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true, margin: "-80px" }}
+              transition={{ duration: 0.6, delay: i * 0.12, ease: EASE }}
+              className="group relative bg-card/60 backdrop-blur-xl rounded-2xl p-8 border border-border/50 hover:border-primary/40 transition-all duration-300 hover:-translate-y-1"
+            >
+              <div className="absolute top-6 right-6 text-[56px] font-bold text-foreground/5 tracking-tighter leading-none">
+                {s.n}
+              </div>
+              <div className="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center mb-6 group-hover:bg-primary/20 transition-colors">
+                {i === 0 && <FileText className="w-5 h-5" />}
+                {i === 1 && <Zap className="w-5 h-5" />}
+                {i === 2 && <TrendingUp className="w-5 h-5" />}
+              </div>
+              <h3 className="text-[18px] font-semibold tracking-tight mb-2">{s.title}</h3>
+              <p className="text-[13px] text-muted-foreground leading-relaxed">{s.desc}</p>
             </motion.div>
           ))}
         </div>
       </section>
 
-      {/* Social proof */}
-      <section className="max-w-[1140px] mx-auto px-10 pb-10">
-        <div className="text-center py-5 border-t border-b border-border">
-          <p className="text-taura-text3 text-[12px]">Costruito da chi ha gestito 100+ campagne per brand nazionali</p>
+      {/* FEATURES */}
+      <section className="relative max-w-[1180px] mx-auto px-8 py-24">
+        <motion.div
+          initial={{ opacity: 0, y: 16 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true, margin: "-100px" }}
+          transition={{ duration: 0.6, ease: EASE }}
+          className="text-center mb-14"
+        >
+          <div className="text-[11px] font-bold text-primary tracking-[0.2em] uppercase mb-3">Un sistema, non un tool</div>
+          <h2 className="text-[40px] md:text-[52px] font-bold tracking-[-0.025em] leading-[1.05] max-w-[760px] mx-auto">
+            Sostituisci 10 software con <span className="text-primary">uno solo</span>.
+          </h2>
+        </motion.div>
+
+        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {features.map((f, i) => {
+            const Icon = f.icon;
+            return (
+              <motion.div
+                key={i}
+                initial={{ opacity: 0, y: 24 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true, margin: "-60px" }}
+                transition={{ duration: 0.5, delay: i * 0.06, ease: EASE }}
+                whileHover={{ y: -4 }}
+                className="bg-card/70 backdrop-blur-xl rounded-2xl p-7 border border-border/50 hover:border-primary/30 transition-all duration-300 cursor-default"
+              >
+                <div className={`w-10 h-10 rounded-xl ${tintBg[f.tint]} flex items-center justify-center mb-5`}>
+                  <Icon className="w-5 h-5" />
+                </div>
+                <h3 className="text-[15px] font-semibold tracking-tight mb-1.5">{f.title}</h3>
+                <p className="text-[12px] text-muted-foreground leading-relaxed">{f.desc}</p>
+              </motion.div>
+            );
+          })}
         </div>
       </section>
 
-      {/* Footer */}
-      <footer className="max-w-[1140px] mx-auto px-10 py-6 flex items-center justify-between text-[11px] text-taura-text4">
-        <div className="flex items-center gap-2">
-          <TauraLogo size={18} />
-          <span className="font-bold text-taura-text3">TAURA OS</span>
+      {/* CAMPAGNE & BRIEF AI */}
+      <section className="relative max-w-[1180px] mx-auto px-8 py-24">
+        <div className="grid md:grid-cols-2 gap-16 items-center">
+
+          {/* Left: copy */}
+          <motion.div
+            initial={{ opacity: 0, x: -24 }}
+            whileInView={{ opacity: 1, x: 0 }}
+            viewport={{ once: true, margin: "-80px" }}
+            transition={{ duration: 0.7, ease: EASE }}
+          >
+            <div className="text-[11px] font-bold text-primary tracking-[0.2em] uppercase mb-4">Campagne & Brief AI</div>
+            <h2 className="text-[36px] md:text-[46px] font-bold tracking-[-0.025em] leading-[1.06] mb-5">
+              Dal brief al talent<br />
+              <span className="text-primary">in 60 secondi</span>.
+            </h2>
+            <p className="text-[15px] text-muted-foreground leading-relaxed mb-8">
+              Carica il PDF o PPTX del brand. Taura legge il brief, struttura la campagna,
+              estrae ogni deliverable e genera un messaggio personalizzato pronto da inviare
+              a ciascun talent. Senza digitare una riga.
+            </p>
+
+            <div className="space-y-4">
+              {[
+                { icon: Upload, text: "Brief PDF/PPTX → campagna strutturata automaticamente", accent: false },
+                { icon: Bot, text: "Deliverable per talent estratti con accuracy >99%", accent: true },
+                { icon: Send, text: "Messaggi personalizzati per ogni talent pronti da inviare", accent: false },
+                { icon: Bell, text: "Alert automatici su approvazioni, scadenze e conflitti", accent: false },
+              ].map((b, i) => {
+                const Icon = b.icon;
+                return (
+                  <motion.div
+                    key={i}
+                    initial={{ opacity: 0, x: -16 }}
+                    whileInView={{ opacity: 1, x: 0 }}
+                    viewport={{ once: true }}
+                    transition={{ duration: 0.5, delay: 0.1 + i * 0.09, ease: EASE }}
+                    className="flex items-start gap-3"
+                  >
+                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 mt-0.5 ${b.accent ? "bg-primary/15 text-primary ring-1 ring-primary/25" : "bg-secondary text-muted-foreground"}`}>
+                      <Icon className="w-3.5 h-3.5" />
+                    </div>
+                    <span className={`text-[13.5px] leading-relaxed ${b.accent ? "text-foreground font-medium" : "text-muted-foreground"}`}>{b.text}</span>
+                  </motion.div>
+                );
+              })}
+            </div>
+          </motion.div>
+
+          {/* Right: animated pipeline mockup */}
+          <motion.div
+            initial={{ opacity: 0, x: 24 }}
+            whileInView={{ opacity: 1, x: 0 }}
+            viewport={{ once: true, margin: "-80px" }}
+            transition={{ duration: 0.7, ease: EASE }}
+            className="relative"
+          >
+            <div className="absolute inset-0 blur-3xl opacity-30 pointer-events-none"
+              style={{ background: "radial-gradient(ellipse at 60% 40%, hsl(var(--primary) / 0.4) 0%, transparent 65%)" }} />
+
+            <div className="relative space-y-3">
+              {/* Step 1: Upload */}
+              <motion.div
+                initial={{ opacity: 0, y: 16 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                transition={{ duration: 0.5, delay: 0.1, ease: EASE }}
+                className="bg-card rounded-2xl border border-border p-4 flex items-center gap-3"
+              >
+                <div className="w-9 h-9 rounded-xl bg-secondary flex items-center justify-center shrink-0">
+                  <FileText className="w-4 h-4 text-muted-foreground" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-[12px] font-semibold text-foreground">brief_puma_estate2025.pdf</div>
+                  <div className="text-[10px] text-muted-foreground mt-0.5">Caricato · 2.4 MB</div>
+                </div>
+                <div className="text-[10px] bg-taura-green/15 text-taura-green border border-taura-green/25 px-2 py-0.5 rounded-full font-semibold">Ricevuto</div>
+              </motion.div>
+
+              {/* AI processing */}
+              <motion.div
+                initial={{ opacity: 0, y: 16 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                transition={{ duration: 0.5, delay: 0.22, ease: EASE }}
+                className="bg-card rounded-2xl border border-primary/30 p-4"
+              >
+                <div className="flex items-center gap-2 mb-3">
+                  <span className="w-1.5 h-1.5 rounded-full bg-primary" style={{ boxShadow: "0 0 8px hsl(var(--primary) / 0.8)" }} />
+                  <span className="text-[10px] font-bold text-primary tracking-wider">TAURA AI · elaborazione</span>
+                  <span className="ml-auto text-[10px] text-muted-foreground font-mono">0.8s</span>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  {["Campagna", "Deliverable", "Talent"].map((label, i) => (
+                    <div key={i} className="bg-secondary rounded-lg px-2.5 py-1.5 text-center">
+                      <Check className="w-3 h-3 text-taura-green mx-auto mb-0.5" />
+                      <div className="text-[9px] font-semibold text-foreground">{label}</div>
+                    </div>
+                  ))}
+                </div>
+              </motion.div>
+
+              {/* Deliverables extracted */}
+              <motion.div
+                initial={{ opacity: 0, y: 16 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                transition={{ duration: 0.5, delay: 0.34, ease: EASE }}
+                className="bg-card rounded-2xl border border-border p-4"
+              >
+                <div className="text-[10px] font-bold text-muted-foreground tracking-wider uppercase mb-2.5">4 deliverable estratti</div>
+                <div className="space-y-1.5">
+                  {[
+                    { talent: "M. Rossi", type: "Reel", date: "12 Giu" },
+                    { talent: "L. Ferrari", type: "Post ×2", date: "15 Giu" },
+                    { talent: "M. Rossi", type: "Story", date: "20 Giu" },
+                  ].map((d, i) => (
+                    <div key={i} className="flex items-center gap-2 text-[11px]">
+                      <div className="w-5 h-5 rounded-md bg-secondary flex items-center justify-center shrink-0">
+                        <span className="text-[8px] font-bold text-muted-foreground">{d.talent.split(" ").map(w => w[0]).join("")}</span>
+                      </div>
+                      <span className="text-foreground font-medium flex-1">{d.talent}</span>
+                      <span className="text-muted-foreground">{d.type}</span>
+                      <span className="text-muted-foreground font-mono text-[10px]">{d.date}</span>
+                    </div>
+                  ))}
+                </div>
+              </motion.div>
+
+              {/* Message generated */}
+              <motion.div
+                initial={{ opacity: 0, y: 16 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                transition={{ duration: 0.5, delay: 0.46, ease: EASE }}
+                className="bg-card rounded-2xl border border-border p-4"
+              >
+                <div className="flex items-center gap-2 mb-2">
+                  <MessageSquare className="w-3.5 h-3.5 text-primary" />
+                  <span className="text-[11px] font-semibold text-foreground">Messaggio per M. Rossi</span>
+                  <span className="ml-auto text-[9px] bg-primary/10 text-primary px-2 py-0.5 rounded-full border border-primary/20 font-semibold">Generato AI</span>
+                </div>
+                <div className="text-[11px] text-muted-foreground leading-relaxed line-clamp-2">
+                  "Ciao Marco! Ti mando il brief Puma per giugno. Hai un Reel il 12 e una Story il 20…"
+                </div>
+                <div className="flex gap-2 mt-2.5">
+                  <div className="flex items-center gap-1 text-[10px] text-primary font-semibold cursor-pointer">
+                    <Send className="w-2.5 h-2.5" /> Invia
+                  </div>
+                  <div className="flex items-center gap-1 text-[10px] text-muted-foreground font-semibold cursor-pointer ml-2">
+                    Copia testo
+                  </div>
+                </div>
+              </motion.div>
+            </div>
+          </motion.div>
         </div>
-        <div className="flex gap-5">
-          {["Pricing", "Prodotto", "Chi siamo", "Privacy", "Termini"].map(l => (
-            <span key={l} className="cursor-pointer hover:text-taura-text2 transition-colors" onClick={() => l === "Pricing" ? navigate("/pricing") : null}>{l}</span>
-          ))}
+      </section>
+
+      {/* NOTIFICHE */}
+      <section className="relative max-w-[1180px] mx-auto px-8 pb-24">
+        <motion.div
+          initial={{ opacity: 0, y: 16 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true, margin: "-80px" }}
+          transition={{ duration: 0.6, ease: EASE }}
+          className="relative rounded-3xl border border-border/50 bg-card/60 overflow-hidden p-8 md:p-12"
+        >
+          <div className="absolute top-0 left-0 w-[500px] h-[300px] pointer-events-none"
+            style={{ background: "radial-gradient(ellipse at 0% 0%, hsl(var(--primary) / 0.1) 0%, transparent 60%)" }} />
+
+          <div className="relative grid md:grid-cols-2 gap-10 items-center">
+            <div>
+              <div className="inline-flex items-center gap-2 bg-primary/10 text-primary text-[10px] font-bold tracking-[0.15em] uppercase px-3 py-1.5 rounded-full border border-primary/20 mb-5">
+                <Bell className="w-3 h-3" /> Notifiche intelligenti
+              </div>
+              <h2 className="text-[30px] md:text-[38px] font-bold tracking-[-0.025em] leading-[1.08] mb-4">
+                Nessuna scadenza,<br />nessun conflitto, nessun alert<br />
+                <span className="text-primary">ti sfugge.</span>
+              </h2>
+              <p className="text-[14px] text-muted-foreground leading-relaxed">
+                Taura monitora contratti, campagne e roster in background.
+                Ogni evento rilevante — conflitto di clausola, scadenza imminente, deliverable in ritardo —
+                genera un alert diretto con il contesto già pronto.
+              </p>
+            </div>
+
+            <div className="space-y-2.5">
+              {[
+                { icon: "🛡", label: "Conflitto rilevato", msg: "Il deal Nike per Bianchi confligge con la clausola 4.2 di Adidas.", sev: "ALTO", color: "taura-red" },
+                { icon: "⏰", label: "Scadenza 14 giorni", msg: "Contratto Rossi/Puma scade il 5 mag. Rinnovo non ancora avviato.", sev: "MEDIO", color: "taura-orange" },
+                { icon: "📋", label: "Deliverable in ritardo", msg: "Campagna Nike — Story di M. Rossi non approvata (4 gg fa).", sev: "BASSO", color: "primary" },
+              ].map((n, i) => (
+                <motion.div
+                  key={i}
+                  initial={{ opacity: 0, x: 20 }}
+                  whileInView={{ opacity: 1, x: 0 }}
+                  viewport={{ once: true }}
+                  transition={{ duration: 0.5, delay: 0.1 + i * 0.1, ease: EASE }}
+                  className="flex items-start gap-3 bg-card rounded-xl border border-border p-3.5"
+                >
+                  <span className="text-base shrink-0 mt-0.5">{n.icon}</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <span className="text-[11px] font-semibold text-foreground">{n.label}</span>
+                      <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${
+                        n.color === "taura-red" ? "bg-red-500/15 text-red-400" :
+                        n.color === "taura-orange" ? "bg-orange-500/15 text-orange-400" :
+                        "bg-primary/15 text-primary"
+                      }`}>{n.sev}</span>
+                    </div>
+                    <div className="text-[11px] text-muted-foreground leading-relaxed">{n.msg}</div>
+                  </div>
+                </motion.div>
+              ))}
+            </div>
+          </div>
+        </motion.div>
+      </section>
+
+      {/* ROI SECTION */}
+      <section id="roi" className="relative max-w-[1180px] mx-auto px-8 py-24">
+        <motion.div
+          initial={{ opacity: 0, y: 16 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true, margin: "-100px" }}
+          transition={{ duration: 0.6, ease: EASE }}
+          className="bg-gradient-to-br from-card/80 to-card/40 backdrop-blur-xl rounded-3xl border border-border/50 p-10 md:p-16 relative overflow-hidden"
+        >
+          <div className="absolute top-0 right-0 w-[400px] h-[400px] rounded-full blur-3xl opacity-20 pointer-events-none"
+            style={{ background: "radial-gradient(circle, hsl(var(--primary)) 0%, transparent 70%)" }} />
+
+          <div className="relative grid md:grid-cols-2 gap-10 items-center">
+            <div>
+              <div className="text-[11px] font-bold text-primary tracking-[0.2em] uppercase mb-3">Il ROI in numeri</div>
+              <h2 className="text-[36px] md:text-[44px] font-bold tracking-[-0.025em] leading-[1.08] mb-5">
+                Risparmia <span className="text-primary">ore</span>,<br />
+                moltiplica <span className="text-primary">ricavi</span>.
+              </h2>
+              <p className="text-[15px] text-muted-foreground leading-relaxed mb-6">
+                Agenzie che passano a Taura OS gestiscono il doppio del roster con lo stesso team.
+                Più contratti, più sponsor, più deal chiusi — meno errori, zero conflitti non rilevati.
+              </p>
+              <button
+                onClick={() => navigate("/pricing")}
+                className="inline-flex items-center gap-2 text-[13px] font-semibold text-primary hover:gap-3 transition-all"
+              >
+                Calcola il tuo risparmio <ArrowRight className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              {[
+                { icon: Clock, big: "−75%", label: "tempo per contratto", detail: "Da 4 ore a 45 secondi" },
+                { icon: ShieldAlert, big: "100%", label: "conflitti rilevati", detail: "Prima che diventino penali" },
+                { icon: TrendingUp, big: "+2×", label: "deal chiusi per mese", detail: "Meno lavoro manuale, più strategia" },
+              ].map((r, i) => {
+                const Icon = r.icon;
+                return (
+                  <motion.div
+                    key={i}
+                    initial={{ opacity: 0, x: 20 }}
+                    whileInView={{ opacity: 1, x: 0 }}
+                    viewport={{ once: true, margin: "-80px" }}
+                    transition={{ duration: 0.5, delay: 0.1 + i * 0.1, ease: EASE }}
+                    className="flex items-center gap-4 p-5 bg-card/60 backdrop-blur rounded-2xl border border-border/50"
+                  >
+                    <div className="w-11 h-11 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                      <Icon className="w-5 h-5" />
+                    </div>
+                    <div className="flex-1">
+                      <div className="flex items-baseline gap-2">
+                        <span className="text-[28px] font-bold text-foreground tracking-tight leading-none">{r.big}</span>
+                        <span className="text-[12px] font-semibold text-foreground">{r.label}</span>
+                      </div>
+                      <div className="text-[11px] text-muted-foreground mt-0.5">{r.detail}</div>
+                    </div>
+                  </motion.div>
+                );
+              })}
+            </div>
+          </div>
+        </motion.div>
+      </section>
+
+      {/* TESTIMONIAL */}
+      <section className="relative max-w-[1180px] mx-auto px-8 py-24">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true, margin: "-80px" }}
+          transition={{ duration: 0.6, ease: EASE }}
+          className="max-w-[820px] mx-auto text-center"
+        >
+          <div className="text-[11px] font-bold text-primary tracking-[0.2em] uppercase mb-5">Costruito con chi lavora sul campo</div>
+          <p className="text-[28px] md:text-[36px] font-semibold leading-[1.25] tracking-[-0.02em] text-foreground/90">
+            "Gestisco 30 talent su tre verticali diverse.
+            Taura mi fa risparmiare tre giornate a settimana solo sui contratti."
+          </p>
+          <div className="mt-8 inline-flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary to-taura-blue" />
+            <div className="text-left">
+              <div className="text-[13px] font-semibold">Early beta tester</div>
+              <div className="text-[11px] text-muted-foreground">Agenzia sport & talent, Milano</div>
+            </div>
+          </div>
+        </motion.div>
+      </section>
+
+      {/* PLANS */}
+      <section id="piani" className="relative max-w-[1180px] mx-auto px-8 py-24">
+        <motion.div
+          initial={{ opacity: 0, y: 16 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true, margin: "-100px" }}
+          transition={{ duration: 0.6, ease: EASE }}
+          className="text-center mb-14"
+        >
+          <div className="text-[11px] font-bold text-primary tracking-[0.2em] uppercase mb-3">Piani</div>
+          <h2 className="text-[40px] md:text-[52px] font-bold tracking-[-0.025em] leading-[1.05] mb-4">
+            Prezzi chiari. Valore reale.
+          </h2>
+          <p className="text-[15px] text-muted-foreground max-w-[560px] mx-auto">
+            Siamo in beta privata. Le prime 5 agenzie entrano gratis per 6 mesi
+            e bloccano il prezzo al rinnovo.
+          </p>
+        </motion.div>
+
+        <PlansGrid onSelectPlan={goPlans} />
+      </section>
+
+      {/* FAQ */}
+      <section className="relative max-w-[760px] mx-auto px-8 py-24">
+        <motion.div
+          initial={{ opacity: 0, y: 16 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true, margin: "-100px" }}
+          transition={{ duration: 0.6, ease: EASE }}
+          className="text-center mb-12"
+        >
+          <div className="text-[11px] font-bold text-primary tracking-[0.2em] uppercase mb-3">Domande frequenti</div>
+          <h2 className="text-[40px] md:text-[48px] font-bold tracking-[-0.025em] leading-[1.05]">
+            Tutto quello che vuoi sapere.
+          </h2>
+        </motion.div>
+
+        <div className="flex flex-col gap-2">
+          {faqs.map((f, i) => {
+            const open = openFaq === i;
+            return (
+              <motion.div
+                key={i}
+                initial={{ opacity: 0, y: 12 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                transition={{ duration: 0.4, delay: i * 0.04 }}
+                className={`bg-card/70 backdrop-blur rounded-2xl border overflow-hidden transition-colors ${open ? "border-primary/30" : "border-border/50"}`}
+              >
+                <button
+                  onClick={() => setOpenFaq(open ? null : i)}
+                  className="w-full px-6 py-5 flex items-center justify-between gap-4 text-left cursor-pointer"
+                >
+                  <span className="text-[14px] font-semibold tracking-tight">{f.q}</span>
+                  <motion.span
+                    animate={{ rotate: open ? 180 : 0 }}
+                    transition={{ duration: 0.25 }}
+                    className="shrink-0 text-muted-foreground"
+                  >
+                    <ChevronDown className="w-4 h-4" />
+                  </motion.span>
+                </button>
+                <AnimatePresence initial={false}>
+                  {open && (
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: "auto", opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      transition={{ duration: 0.3, ease: EASE }}
+                      className="overflow-hidden"
+                    >
+                      <div className="px-6 pb-5 text-[13px] text-muted-foreground leading-relaxed">
+                        {f.a}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </motion.div>
+            );
+          })}
+        </div>
+      </section>
+
+      {/* FINAL CTA */}
+      <section className="relative max-w-[1180px] mx-auto px-8 py-24">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.97 }}
+          whileInView={{ opacity: 1, scale: 1 }}
+          viewport={{ once: true, margin: "-100px" }}
+          transition={{ duration: 0.7, ease: EASE }}
+          className="relative rounded-[32px] border border-primary/30 bg-gradient-to-br from-card/90 to-card/40 backdrop-blur-xl p-12 md:p-20 text-center overflow-hidden"
+        >
+          <div className="absolute inset-0 pointer-events-none">
+            <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[700px] h-[700px] rounded-full blur-3xl opacity-25"
+              style={{ background: "radial-gradient(circle, hsl(var(--primary)) 0%, transparent 65%)" }} />
+          </div>
+
+          <div className="relative">
+            <h2 className="text-[44px] md:text-[60px] font-bold tracking-[-0.03em] leading-[1.02] mb-5">
+              Sei pronto a<br />
+              <span className="bg-gradient-to-r from-primary to-taura-accent bg-clip-text text-transparent">
+                moltiplicare il tuo roster
+              </span>
+              ?
+            </h2>
+            <p className="text-[16px] text-muted-foreground max-w-[520px] mx-auto mb-8">
+              Accesso gratuito per le prime 5 agenzie. Setup in 90 secondi.
+            </p>
+            <button
+              onClick={() => navigate("/pricing")}
+              className="group bg-primary text-primary-foreground px-8 py-4 rounded-xl text-[15px] font-semibold cursor-pointer hover:shadow-2xl hover:shadow-primary/40 hover:-translate-y-0.5 transition-all inline-flex items-center gap-2"
+            >
+              Richiedi il tuo accesso
+              <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+            </button>
+          </div>
+        </motion.div>
+      </section>
+
+      {/* FOOTER */}
+      <footer className="relative max-w-[1180px] mx-auto px-8 py-10 border-t border-border/40">
+        <div className="flex flex-col md:flex-row items-center justify-between gap-4 text-[11px] text-muted-foreground">
+          <div className="flex items-center gap-2.5">
+            <TauraLogo size={18} />
+            <span className="font-bold">TAURA OS</span>
+            <span className="text-[10px]">© {new Date().getFullYear()}</span>
+          </div>
+          <div className="flex gap-6">
+            <span onClick={() => navigate("/pricing")} className="cursor-pointer hover:text-foreground transition-colors">Piani</span>
+            <a href="#come-funziona" className="cursor-pointer hover:text-foreground transition-colors">Come funziona</a>
+            <a href="mailto:os@tauramanagement.com" className="cursor-pointer hover:text-foreground transition-colors">Contatti</a>
+            <span className="cursor-pointer hover:text-foreground transition-colors">Privacy</span>
+          </div>
         </div>
       </footer>
     </div>

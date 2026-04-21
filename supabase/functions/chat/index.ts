@@ -1,6 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2";
-import { callAnthropic, sanitizeMessages } from "../_shared/anthropic.ts";
+import { callAnthropic, sanitizeMessages, MODELS } from "../_shared/anthropic.ts";
 import { routeRequest } from "../_shared/llm-router.ts";
 import { convertAnthropicStreamToOpenAI, convertGeminiStreamToOpenAI } from "../_shared/stream-converter.ts";
 
@@ -108,8 +108,15 @@ const AI_TOOLS = [
 ];
 
 // ─── Action intent detection regex ────────────────────────────────────────
-const ACTION_INTENT_RE =
-  /\b(sposta(re)?( il)?( deal| lo stage| contratto)?|porta(re)?( il deal| in stage)?|aggiorna(re)?( il| la| le| lo)?( deal| stage| data| nota| contratto| deliverable| metrics|impressions|reach)?|crea(re)?( un| una)?( deal| notifica)|nuovo deal|inserisci( un)?( deal)|reschedula(re)?|rimanda(re)?|cambia(re)?( la)?( data| lo stage)|modifica(re)?( il| la)?( deal| contratto| nota)|update( deal| stage| contratto))\b/i;
+// Implemented as a duck-typed object so we can OR two patterns without
+// changing the .test() call sites.
+const ACTION_INTENT_RE = {
+  test: (s: string) =>
+    // Direct command forms (imperative)
+    /\b(sposta(re)?( il)?( deal| lo stage| contratto)?|porta(re)?( il deal| in stage)?|aggiorna(re)?( il| la| le| lo)?( deal| stage| data| nota| contratto| deliverable| metrics|impressions|reach)?|crea(re)?( un| una)?( deal| notifica)|nuovo deal|inserisci( un)?( deal)|reschedula(re)?|rimanda(re)?|cambia(re)?( la)?( data| lo stage)|modifica(re)?( il| la)?( deal| contratto| nota)|update( deal| stage| contratto))\b/i.test(s) ||
+    // Polite / modal / question forms ("puoi spostare", "vorrei aggiornare", "si può cambiare", "come faccio a reschedular")
+    /\b(puoi|potresti|vorrei|si\s+pu[oò]|come\s+faccio\s+a)\s+(spostare|aggiornare|cambiare|creare|modificare|reschedular)/i.test(s),
+};
 
 // Keywords that indicate the user is asking about FILE CONTENT
 const FILE_QUERY_RE =
@@ -475,9 +482,21 @@ async function detectActionAndReturnConfirmation(
         tools: AI_TOOLS,
         tool_choice: { type: "auto" },
         system: `${systemContext}\n\nSei in modalità ACTION DETECTION. L'utente vuole eseguire una modifica nel sistema. Usa i tool disponibili per strutturare l'azione richiesta. Sii preciso con gli ID o fornisci hint descrittivi se l'ID non è nel contesto.`,
-        // Shared sanitizer: strips leading assistant, merges consecutive same-role,
-        // normalizes content — identical to what callAnthropicDirect does internally.
-        messages: sanitizeMessages(messages.slice(-6)),
+        // Prepare a focused slice for action detection:
+        // – keep last 6 turns for context but trim long assistant replies to
+        //   500 chars so the model can clearly see the user command
+        // – guarantee the slice ends with the current user message so the
+        //   model never sees an assistant turn as the last prompt
+        messages: sanitizeMessages((() => {
+          const rawSlice = messages.slice(-6).map((m: { role: string; content: unknown }) => {
+            if (m.role === "assistant" && typeof m.content === "string" && m.content.length > 500) {
+              return { ...m, content: m.content.slice(0, 500) };
+            }
+            return m;
+          });
+          const lastIsUser = rawSlice.length > 0 && rawSlice[rawSlice.length - 1].role === "user";
+          return lastIsUser ? rawSlice : [...rawSlice, { role: "user", content: userMsg }];
+        })()),
       }),
     });
     clearTimeout(timeoutId);
@@ -1184,6 +1203,32 @@ ${semanticBlock}
       conversationLength: messages?.length ?? 0,
       userTier: planToTier(agencyPlan ?? "free"),
     });
+
+    // ── QIE formatter-domain override ────────────────────────────────────────
+    // For retrieval-only domains, QIE pre-computes the answer and the LLM is a
+    // pure formatter. Opus adds no reasoning value over Sonnet here, costing 5×
+    // more due to DEEP_PATTERN matches (e.g. /ranking/, /esclusivit/, time-horizon).
+    //
+    // Cap L3→L2 when agency data is in the context block ("full" quality).
+    // Only restore L3 if context is absent ("insufficient") — sparse data
+    // requires the extra reasoning capacity to compensate.
+    const FORMATTER_DOMAIN_PATTERNS: [string, RegExp][] = [
+      ["roster_overview",   /\b(quanti atleti|quanti talent|lista roster|mostra roster|tutti gli atleti|chi gestisco)\b/i],
+      ["athlete_ranking",   /\branking\b.*atleti|classifica atleti|dammi (un |il )?ranking|migliore atleta|peggiore atleta|chi ([eè] il (pi[uù]|nostro)|genera di pi[uù])|ordina (gli )?atleti/i],
+      ["contract_expiry",   /\bscad(e|on|enza|enze|uti|ute)\b|in scadenza|cosa scade|contratti in scadenza/i],
+      ["exclusivity_check", /ha esclusivit|chi ha esclusiv|categoria libera|possiamo pitchare|posso fare deal con/i],
+      ["deadline_alert",    /cosa devo fare (oggi|domani|questa settimana)|cose urgenti|priorit[aà] della settimana|scadenze (di )?(oggi|questa settimana)/i],
+      ["conflict_check",    /ci sono conflitti|conflitti aperti|quanti conflitti/i],
+    ];
+    const matchedFormatterDomain = FORMATTER_DOMAIN_PATTERNS.find(([, re]) => re.test(latestUserMsg))?.[0];
+    const dataQuality: "full" | "insufficient" =
+      contextBlock.length > 300 && contextBlock.includes("DATI AGENZIA") ? "full" : "insufficient";
+
+    if (matchedFormatterDomain && dataQuality === "full" && routing.level === "L3") {
+      routing.level = "L2";
+      routing.model = MODELS.L2_SONNET;
+      routing.reasoning += `, qie-cap:${matchedFormatterDomain}→L2`;
+    }
 
     // ── Ranking compression: strip deliverable rows — irrelevant for ranking ──
     const isRankingQuery = /ranking|classifica|migliore|peggiore|pi[uù] redditiz|pi[uù] valu/i.test(latestUserMsg);

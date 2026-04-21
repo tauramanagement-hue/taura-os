@@ -4,8 +4,9 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { Pill } from "@/components/taura/ui-primitives";
 import { sha256Hex, getFileExt } from "@/lib/fileHash";
-import { Upload, Plus, Search, Check, Clock, FileText, ChevronRight, Trash2, Pencil, Copy, Mail, ChevronDown, ChevronUp, Send } from "lucide-react";
+import { Upload, Plus, Search, Check, Clock, FileText, ChevronRight, Trash2, Pencil, Copy, Mail, ChevronDown, ChevronUp, Send, Megaphone } from "lucide-react";
 import { toast } from "sonner";
+import EmptyState from "@/components/taura/EmptyState";
 
 interface Campaign {
   id: string;
@@ -451,11 +452,20 @@ const CampaignsPage = () => {
           {loading ? (
             <div className="text-center py-12 text-muted-foreground text-sm">Caricamento...</div>
           ) : filtered.length === 0 ? (
-            <div className="text-center py-16">
-              <FileText className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
-              <div className="text-foreground font-bold mb-1">{search ? "Nessun risultato" : "Nessuna campagna"}</div>
-              <div className="text-muted-foreground text-sm">Crea la prima campagna o carica un brief per iniziare.</div>
-            </div>
+            search ? (
+              <div className="text-center py-16">
+                <div className="text-foreground font-bold mb-1">Nessun risultato</div>
+                <div className="text-muted-foreground text-sm">Prova con un'altra ricerca.</div>
+              </div>
+            ) : (
+              <EmptyState
+                icon={Megaphone}
+                title="Nessuna campagna attiva"
+                description="Crea la prima campagna per generare Proof Package automatici per i tuoi sponsor"
+                ctaLabel="Nuova campagna"
+                onCta={() => setShowCreate(true)}
+              />
+            )
           ) : (
             <div className="flex flex-col gap-2">
               {filtered.map(c => {

@@ -6,6 +6,7 @@ import { useAgencyContext } from "@/hooks/useAgencyContext";
 import { SeverityBadge } from "@/components/taura/ui-primitives";
 import { FileText, UserPlus, Megaphone, MessageSquare, CheckCircle2, Circle, ChevronDown, ChevronUp } from "lucide-react";
 import DashboardAnalytics from "@/components/taura/DashboardAnalytics";
+import DashboardTour from "@/components/taura/DashboardTour";
 
 type Period = "Q1" | "Q2" | "Q3" | "Q4" | "YTD";
 
@@ -302,6 +303,7 @@ const DashboardPage = () => {
 
   return (
     <div className="flex-1 overflow-y-auto bg-background" style={{ paddingBottom: 40 }}>
+      <DashboardTour />
 
       {/* Page header */}
       <div className="page-header">
