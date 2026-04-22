@@ -85,6 +85,34 @@ Stack: Vite + React 18 · TypeScript strict · Tailwind v4 · Supabase (Postgres
 
 **ultrathink:** aggiungi la parola `ultrathink` nel prompt per reasoning profondo on-demand senza cambiare effort level.
 
+# CONTEXT ENGINEERING — tagliare i token senza perdere qualità
+
+> Ogni giro di "discovery" (Claude che chiede lo schema, testa le API, indovina la struttura) costa token. Dagli il contesto strutturato prima di iniziare.
+
+**Prima di un task su DB / migrazioni:**
+```bash
+npx supabase db diff --linked          # schema locale vs remoto
+npx supabase migration list            # migrazioni applicate
+npx supabase inspect db --url "$URL"   # salute connessioni (sostituisci $URL)
+```
+Incolla l'output nel prompt: Claude non dovrà scoprirlo da solo.
+
+**Prima di un task su Edge Functions:**
+```bash
+npx supabase functions list            # funzioni deployate
+npx supabase functions logs <nome>     # ultimi log della funzione
+```
+
+**Quando riporti un errore:** includi sempre (1) messaggio esatto, (2) da quale layer arriva (browser / edge function / RLS / Supabase), (3) cosa hai già provato. Senza questi tre elementi, Claude cicla in retry loop che triplicano i token.
+
+**Skills installate** (progressive disclosure — si attivano solo quando rilevanti, zero costo altrimenti):
+- `.agents/skills/supabase` — pattern SDK, Auth, Storage, Realtime, Vector, Edge Functions
+- `.agents/skills/supabase-postgres-best-practices` — performance, index, query optimization
+
+**Prompt compatti battono prompt lunghi:** descrivi il task in 3-5 righe con file + riga di riferimento. Claude che legge 40 righe di contesto vago spende più token di Claude che legge 5 righe precise.
+
+**Scope stretto per session:** una sessione = un modulo. Non chiedere "aggiusta auth e aggiungi feature X e refactora Y" nella stessa sessione — ogni cambio di dominio sporca il contesto e genera token di riconciliazione.
+
 # CURRENT FOCUS
 
 <!-- Aggiorna questo blocco ad ogni sprint — cancella la riga quando il task è done -->

@@ -3,7 +3,8 @@ import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
-import { Pencil, Check, X, UserPlus, Download, Lock } from "lucide-react";
+import { Pencil, Check, X, UserPlus, Download } from "lucide-react";
+import DataRightsPanel from "@/components/taura/DataRightsPanel";
 
 const SettingsPage = () => {
   const navigate = useNavigate();
@@ -295,17 +296,13 @@ const SettingsPage = () => {
         </div>
       </section>
 
-      {/* Danger */}
-      <section className="bg-card rounded-xl p-6 border border-destructive/20">
-        <h2 className="text-sm font-bold text-destructive mb-2">Danger Zone</h2>
-        <p className="text-xs text-muted-foreground mb-4">L'eliminazione dell'account è permanente e irreversibile.</p>
-        <a
-          href="mailto:os@tauramanagement.com?subject=Early%20access:%20Account%20deletion"
-          className="inline-flex items-center gap-2 bg-destructive/10 border border-destructive/30 text-destructive px-4 py-2 rounded-lg text-xs font-bold hover:bg-destructive/20 transition-colors"
-        >
-          <Lock className="w-3 h-3" />
-          Richiedi accesso
-        </a>
+      {/* Privacy e Dati — GDPR Art. 15, 17, 20 */}
+      <section className="bg-card rounded-xl p-6 border border-border mb-4">
+        <h2 className="text-sm font-bold text-foreground mb-1">Privacy e Dati</h2>
+        <p className="text-[11px] text-muted-foreground mb-4">
+          Gestisci i tuoi dati personali ai sensi del GDPR: accesso, portabilità, cancellazione.
+        </p>
+        <DataRightsPanel />
       </section>
     </div>
   );

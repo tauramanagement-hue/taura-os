@@ -28,7 +28,16 @@ import Transfers from "./pages/Transfers";
 import Mandates from "./pages/Mandates";
 import Scouting from "./pages/Scouting";
 import NotFound from "./pages/NotFound";
+import Privacy from "./pages/Privacy";
+import Terms from "./pages/Terms";
+import Cookies from "./pages/Cookies";
+import DPA from "./pages/DPA";
+import AIDisclosure from "./pages/AIDisclosure";
+import Legal from "./pages/Legal";
 import { DashboardLayout } from "./components/taura/DashboardLayout";
+import CookieConsentBanner from "./components/taura/CookieConsentBanner";
+import ConsentVersionGate from "./components/taura/ConsentVersionGate";
+import SkipToContent from "./components/taura/SkipToContent";
 
 const queryClient = new QueryClient();
 
@@ -41,6 +50,9 @@ const App = () => (
       <BrowserRouter>
         <AuthProvider>
           <AgencyProvider>
+          <SkipToContent />
+          <ConsentVersionGate />
+          <CookieConsentBanner />
           <Routes>
             {/* Root: redirect to /dashboard if authenticated, else /auth */}
             <Route path="/" element={<RootRedirect />} />
@@ -51,6 +63,14 @@ const App = () => (
             <Route path="/login" element={<Login />} />
             <Route path="/pricing" element={<Pricing />} />
             <Route path="/onboarding" element={<Onboarding />} />
+
+            {/* Legal routes — public, GDPR compliance */}
+            <Route path="/privacy" element={<Privacy />} />
+            <Route path="/terms" element={<Terms />} />
+            <Route path="/cookies" element={<Cookies />} />
+            <Route path="/dpa" element={<DPA />} />
+            <Route path="/ai-disclosure" element={<AIDisclosure />} />
+            <Route path="/legal" element={<Legal />} />
 
             {/* INTERNAL routes — removed from router, redirect to dashboard */}
             <Route path="/ai-lab" element={<Navigate to="/dashboard" replace />} />

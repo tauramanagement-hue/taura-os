@@ -4,6 +4,9 @@ import { TauraLogo } from "@/components/taura/ui-primitives";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
+import PrivacyCheckbox from "@/components/taura/PrivacyCheckbox";
+
+const PRIVACY_VERSION = "2026-04-21";
 
 const LoginPage = () => {
   const navigate = useNavigate();
@@ -13,6 +16,9 @@ const LoginPage = () => {
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
   const [loading, setLoading] = useState(false);
+  const [privacyAccepted, setPrivacyAccepted] = useState(false);
+  const [marketingAccepted, setMarketingAccepted] = useState(false);
+  const [privacyError, setPrivacyError] = useState<string | undefined>(undefined);
 
   // Redirect if already logged in — check onboarding status
   useEffect(() => {
@@ -47,22 +53,52 @@ const LoginPage = () => {
     }
   };
 
+  const recordSignupConsents = async () => {
+    try {
+      const consents = [
+        { type: "privacy_policy", granted: true, version: PRIVACY_VERSION },
+        { type: "terms", granted: true, version: PRIVACY_VERSION },
+        { type: "ai_processing", granted: true, version: PRIVACY_VERSION },
+        { type: "cookies_necessary", granted: true, version: PRIVACY_VERSION },
+      ];
+      if (marketingAccepted) {
+        consents.push({ type: "marketing_email", granted: true, version: PRIVACY_VERSION });
+      }
+      await supabase.functions.invoke("consent-webhook", {
+        body: { source: "signup", consents },
+      });
+    } catch {
+      // Fire-and-forget. User feedback is driven by signUp result.
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
 
     if (isLogin) {
+      setLoading(true);
       const { error } = await signIn(email, password);
       if (error) {
         toast({ title: "Errore", description: error.message === "Email not confirmed" ? "Conferma la tua email prima di accedere." : error.message, variant: "destructive" });
       }
+      setLoading(false);
+      return;
+    }
+
+    // Signup: enforce privacy consent (Art. 7 GDPR)
+    if (!privacyAccepted) {
+      setPrivacyError("Devi accettare la privacy policy e i termini per creare l'account.");
+      return;
+    }
+    setPrivacyError(undefined);
+    setLoading(true);
+
+    const { error } = await signUp(email, password, fullName);
+    if (error) {
+      toast({ title: "Errore", description: error.message, variant: "destructive" });
     } else {
-      const { error } = await signUp(email, password, fullName);
-      if (error) {
-        toast({ title: "Errore", description: error.message, variant: "destructive" });
-      } else {
-        toast({ title: "Account creato!", description: "Controlla la tua email per la verifica." });
-      }
+      await recordSignupConsents();
+      toast({ title: "Account creato!", description: "Controlla la tua email per la verifica." });
     }
     setLoading(false);
   };
@@ -169,10 +205,22 @@ const LoginPage = () => {
               minLength={6}
               className="w-full px-3.5 py-3 rounded-lg border border-border bg-secondary text-foreground text-[13px] outline-none focus:border-primary transition-colors placeholder:text-muted-foreground"
             />
+            {!isLogin && (
+              <div className="mt-2">
+                <PrivacyCheckbox
+                  checked={privacyAccepted}
+                  onChange={(v) => { setPrivacyAccepted(v); if (v) setPrivacyError(undefined); }}
+                  showMarketing
+                  marketingChecked={marketingAccepted}
+                  onMarketingChange={setMarketingAccepted}
+                  error={privacyError}
+                />
+              </div>
+            )}
             <button
               type="submit"
-              disabled={loading}
-              className="w-full py-3.5 rounded-lg bg-primary text-primary-foreground text-sm font-bold cursor-pointer mt-1 glow-accent hover:opacity-90 transition-opacity disabled:opacity-50"
+              disabled={loading || (!isLogin && !privacyAccepted)}
+              className="w-full py-3.5 rounded-lg bg-primary text-primary-foreground text-sm font-bold cursor-pointer mt-1 glow-accent hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {loading ? "..." : isLogin ? "Accedi" : "Crea account"}
             </button>

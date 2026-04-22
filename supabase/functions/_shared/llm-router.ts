@@ -75,8 +75,6 @@ const MEDIUM_PATTERNS = [
   /manca|mancano|da pubblicare|non pubblicat|pendenti/i,
   /cosa.*post|post.*manca|pubblic/i,
   /elenco|elenca|lista|tutti/i,
-  /zalando|nike|gucci|armani|samsung|loreal|myprotein|ita airways|booking/i,
-  /sofia|giulia|beatrice|chiara|valentina|luca|marco|elisa|aurora|davide/i,
   // Tightened: require an object after the question word to avoid matching bare "cosa", "dimmi" etc.
   /cosa (manca|c'è|devo|dovrei|dobbiamo|mandare|fare|pubblicare)/i,
   /dimmi (tutto|i dettagli|la situazione)/i,
@@ -126,7 +124,11 @@ export function routeRequest(input: RoutingInput): RoutingResult {
 
   // 3. Pattern matching
   const deepMatch = DEEP_PATTERNS.some((p) => p.test(input.text));
-  const mediumMatch = MEDIUM_PATTERNS.some((p) => p.test(input.text));
+  // Short queries (< 60 chars, no attachment) never qualify for medium tier via pattern matching:
+  // brand/name mentions don't indicate complexity, and short domain queries should stay L1.
+  const mediumMatch =
+    MEDIUM_PATTERNS.some((p) => p.test(input.text)) &&
+    (input.text.length >= 60 || input.hasAttachment);
   const simpleMatch = SIMPLE_PATTERNS.some((p) => p.test(input.text));
 
   if (deepMatch) {

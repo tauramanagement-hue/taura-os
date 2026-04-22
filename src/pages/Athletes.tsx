@@ -16,8 +16,21 @@ const AthletesPage = () => {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [showAdd, setShowAdd] = useState(false);
-  const [newAthlete, setNewAthlete] = useState({ full_name: "", sport: "", category: "" });
+  const [newAthlete, setNewAthlete] = useState({ full_name: "", sport: "", category: "", date_of_birth: "" });
   const [saving, setSaving] = useState(false);
+
+  const computeIsMinor = (dob: string): boolean => {
+    if (!dob) return false;
+    const birth = new Date(dob);
+    if (Number.isNaN(birth.getTime())) return false;
+    const now = new Date();
+    let age = now.getFullYear() - birth.getFullYear();
+    const m = now.getMonth() - birth.getMonth();
+    if (m < 0 || (m === 0 && now.getDate() < birth.getDate())) age--;
+    return age < 18;
+  };
+
+  const newAthleteIsMinor = computeIsMinor(newAthlete.date_of_birth);
 
   useEffect(() => {
     if (!athleteId) fetchAthletes();
@@ -43,16 +56,24 @@ const AthletesPage = () => {
         navigate("/onboarding");
         return;
       }
-      const { error } = await supabase.from("athletes").insert({
+      const isMinor = computeIsMinor(newAthlete.date_of_birth);
+      const { data: inserted, error } = await supabase.from("athletes").insert({
         agency_id: profile.agency_id,
         full_name: newAthlete.full_name.trim(),
         sport: newAthlete.sport.trim(),
         category: newAthlete.category.trim() || null,
-      });
+        date_of_birth: newAthlete.date_of_birth || null,
+        is_minor: isMinor,
+      }).select("id").single();
       if (error) throw error;
-      toast.success("Atleta aggiunto!");
-      setNewAthlete({ full_name: "", sport: "", category: "" });
+      setNewAthlete({ full_name: "", sport: "", category: "", date_of_birth: "" });
       setShowAdd(false);
+      if (isMinor && inserted?.id) {
+        toast.warning("Atleta minorenne registrato. Carica il consenso genitoriale dalla scheda atleta.");
+        navigate(`/athletes/${inserted.id}`);
+        return;
+      }
+      toast.success("Atleta aggiunto!");
       fetchAthletes();
     } catch (err: any) {
       toast.error(err.message || "Errore");
@@ -169,6 +190,13 @@ const AthletesPage = () => {
               <input value={newAthlete.full_name} onChange={(e) => setNewAthlete({ ...newAthlete, full_name: e.target.value })} placeholder="Nome completo" style={inputStyle} />
               <input value={newAthlete.sport} onChange={(e) => setNewAthlete({ ...newAthlete, sport: e.target.value })} placeholder="Sport (es. Calcio, Tennis, Creator...)" style={inputStyle} />
               <input value={newAthlete.category} onChange={(e) => setNewAthlete({ ...newAthlete, category: e.target.value })} placeholder="Categoria (es. Serie A, ATP 250...)" style={inputStyle} />
+              <label style={{ fontSize: 11, color: "hsl(var(--muted-foreground))", marginTop: 4 }}>Data di nascita <span style={{ opacity: 0.6 }}>(facoltativo — necessaria per atleti minorenni)</span></label>
+              <input type="date" value={newAthlete.date_of_birth} onChange={(e) => setNewAthlete({ ...newAthlete, date_of_birth: e.target.value })} style={inputStyle} max={new Date().toISOString().split("T")[0]} />
+              {newAthleteIsMinor && (
+                <div role="alert" style={{ background: "rgba(245, 158, 11, 0.12)", border: "1px solid rgba(245, 158, 11, 0.4)", borderRadius: 8, padding: 10, fontSize: 11, color: "hsl(var(--foreground))", lineHeight: 1.5 }}>
+                  ⚠️ <strong>Atleta minorenne</strong>. Art. 8 GDPR: dopo la creazione dovrai caricare il consenso genitoriale firmato prima di inserire dati operativi.
+                </div>
+              )}
               <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
                 <button
                   onClick={() => setShowAdd(false)}

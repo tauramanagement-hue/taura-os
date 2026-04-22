@@ -138,6 +138,7 @@ export const AppSidebar = () => {
               key={item.id}
               onClick={() => navigate(item.id)}
               title={item.label}
+              aria-label={item.label}
               style={iconBtn(active)}
               onMouseEnter={e => { if (!active) e.currentTarget.style.background = "hsl(var(--sidebar-accent))"; }}
               onMouseLeave={e => { if (!active) e.currentTarget.style.background = "transparent"; }}
@@ -165,6 +166,7 @@ export const AppSidebar = () => {
         <button
           onClick={toggle}
           title={theme === "dark" ? "Modalità chiara" : "Modalità scura"}
+          aria-label={theme === "dark" ? "Modalità chiara" : "Modalità scura"}
           style={{
             width: "100%",
             height: 36,
@@ -188,6 +190,7 @@ export const AppSidebar = () => {
         <button
           onClick={() => navigate("/alerts")}
           title="Alert"
+          aria-label="Alert"
           style={{ ...iconBtn(location.pathname.startsWith("/alerts")), position: "relative" }}
           onMouseEnter={e => { if (!location.pathname.startsWith("/alerts")) e.currentTarget.style.background = "hsl(var(--sidebar-accent))"; }}
           onMouseLeave={e => { if (!location.pathname.startsWith("/alerts")) e.currentTarget.style.background = "transparent"; }}

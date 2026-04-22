@@ -9,6 +9,7 @@ import { useAgencyContext } from "@/hooks/useAgencyContext";
 import { sha256Hex, getFileExt } from "@/lib/fileHash";
 import { InstagramIcon, TikTokIcon, YouTubeIcon } from "@/components/taura/SocialIcons";
 import { getPromptsForRoute } from "@/lib/ai/contextual-prompts";
+import AIProcessingNotice from "@/components/taura/AIProcessingNotice";
 import {
   ConfirmActionCard,
   type ConfirmationPayload,
@@ -694,6 +695,8 @@ export const AIChatPanel = ({ collapsed, onToggle }: { collapsed: boolean; onTog
       {/* Messages */}
       <div
         ref={scrollRef}
+        aria-live="polite"
+        aria-atomic="false"
         style={{
           flex: 1,
           overflowY: "auto",
@@ -703,6 +706,7 @@ export const AIChatPanel = ({ collapsed, onToggle }: { collapsed: boolean; onTog
           gap: 10,
         }}
       >
+        <AIProcessingNotice />
         {messages.map((m, i) => (
           <div
             key={i}

@@ -6,6 +6,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
 import PlansGrid, { type Plan, type PlanId } from "@/components/taura/PlansGrid";
 import { TauraLogo } from "@/components/taura/ui-primitives";
+import PrivacyCheckbox from "@/components/taura/PrivacyCheckbox";
 import { ArrowRight, ArrowLeft, Sparkles, Zap, Clock, Package, ShieldAlert, FileText } from "lucide-react";
 
 const EASE = [0.22, 1, 0.36, 1] as const;
@@ -94,6 +95,7 @@ const OnboardingPage = () => {
   const [selectedPlan, setSelectedPlan] = useState<PlanId | null>(null);
   const [savedAgencyId, setSavedAgencyId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [privacyAccepted, setPrivacyAccepted] = useState(false);
 
   useEffect(() => {
     if (!user) return;
@@ -179,9 +181,22 @@ const OnboardingPage = () => {
     );
   };
 
-  const finishOnboarding = () => {
-    // First-run flag for the dashboard tour
+  const finishOnboarding = async () => {
     try { localStorage.setItem("taura:first_run", "1"); } catch {}
+    // GDPR Art.7 — record consent for OAuth users who skipped Login form
+    try {
+      await supabase.functions.invoke("consent-webhook", {
+        body: {
+          source: "onboarding",
+          consents: [
+            { type: "privacy_policy", granted: true, version: "2026-04-21" },
+            { type: "terms", granted: true, version: "2026-04-21" },
+            { type: "ai_processing", granted: true, version: "2026-04-21" },
+            { type: "cookies_necessary", granted: true, version: "2026-04-21" },
+          ],
+        },
+      });
+    } catch {}
     toast.success("Benvenuto in Taura OS!");
     navigate("/dashboard");
   };
@@ -548,13 +563,21 @@ const OnboardingPage = () => {
                 compact
               />
 
-              <div className="flex items-center justify-between mt-8">
+              <div className="mt-6 mb-1 px-1">
+                <PrivacyCheckbox
+                  checked={privacyAccepted}
+                  onChange={setPrivacyAccepted}
+                />
+              </div>
+
+              <div className="flex items-center justify-between mt-4">
                 <button onClick={() => setStep("agency")} className="inline-flex items-center gap-1.5 text-[12px] text-muted-foreground hover:text-foreground transition-colors">
                   <ArrowLeft className="w-3.5 h-3.5" /> Indietro
                 </button>
                 <button
                   onClick={finishOnboarding}
-                  className="group bg-primary text-primary-foreground px-7 py-3.5 rounded-xl text-[13px] font-semibold cursor-pointer hover:shadow-lg hover:shadow-primary/30 transition-all inline-flex items-center gap-2"
+                  disabled={!privacyAccepted}
+                  className="group bg-primary text-primary-foreground px-7 py-3.5 rounded-xl text-[13px] font-semibold cursor-pointer hover:shadow-lg hover:shadow-primary/30 transition-all inline-flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-none"
                 >
                   {selectedPlan ? "Entra in Taura OS" : "Continua senza scegliere"}
                   <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />

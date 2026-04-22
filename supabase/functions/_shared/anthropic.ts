@@ -16,7 +16,7 @@ export const MODELS = {
   L1_GEMINI_FAST: GEMINI_MODELS.FAST,
   L2_SONNET: "claude-sonnet-4-5-20250929",
   L2_GEMINI_MID: GEMINI_MODELS.MID,
-  OPUS: "claude-opus-4-20250514",
+  OPUS: "claude-opus-4-6",
 } as const;
 
 export type ModelLevel = "L1" | "L2" | "L3";

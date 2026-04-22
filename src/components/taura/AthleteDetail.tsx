@@ -7,12 +7,14 @@ import { Pill } from "@/components/taura/ui-primitives";
 import { toast } from "sonner";
 import { sportEmoji } from "./AthleteCard";
 import MediaKitModal from "./MediaKitModal";
+import MinorConsentUpload from "./MinorConsentUpload";
 
 interface AthleteFullRow {
   id: string; full_name: string; sport: string; category: string | null; status: string | null;
   instagram_followers: number | null; tiktok_followers: number | null; youtube_followers: number | null;
   instagram_handle: string | null; tiktok_handle: string | null; youtube_handle: string | null;
   photo_url: string | null; nationality: string | null; notes: string | null; date_of_birth: string | null;
+  agency_id: string | null; is_minor: boolean | null; parental_consent_url: string | null; parental_consent_verified_at: string | null;
 }
 
 const ICON_SIZE = 18;
@@ -170,6 +172,26 @@ const AthleteDetail = ({ athleteId }: { athleteId: string }) => {
 
           {/* Overview */}
           {activeTab === "overview" && (
+            <div className="space-y-4">
+            {athlete.is_minor && !athlete.parental_consent_verified_at && (
+              <div className="bg-card rounded-xl border border-amber-500/40 p-5">
+                <div className="flex items-start gap-3 mb-3">
+                  <div className="w-8 h-8 rounded-lg bg-amber-500/15 text-amber-500 flex items-center justify-center text-sm shrink-0">⚠️</div>
+                  <div>
+                    <h2 className="text-sm font-bold text-foreground">Consenso genitoriale richiesto</h2>
+                    <p className="text-[11px] text-muted-foreground mt-1">
+                      Atleta minorenne — ai sensi dell'Art. 8 GDPR è necessario il consenso del titolare della responsabilità genitoriale prima di trattare i dati.
+                    </p>
+                  </div>
+                </div>
+                <MinorConsentUpload
+                  athleteId={athleteId}
+                  agencyId={athlete.agency_id || ""}
+                  existingUrl={athlete.parental_consent_url}
+                  onUploaded={fetchAthlete}
+                />
+              </div>
+            )}
             <div className="bg-card rounded-xl border border-border p-5">
               <h2 className="text-sm font-bold text-foreground mb-4">Social Media</h2>
               <div className="flex flex-col gap-3">
@@ -177,6 +199,7 @@ const AthleteDetail = ({ athleteId }: { athleteId: string }) => {
                 <FollowerEditor label="TikTok" icon={<TikTokIcon size={ICON_SIZE} />} handle={athlete.tiktok_handle} followers={athlete.tiktok_followers} onSave={(h, f) => updateField({ tiktok_handle: h, tiktok_followers: f })} platform="tiktok" athleteId={athleteId} onEnriched={fetchAthlete} />
                 <FollowerEditor label="YouTube" icon={<YouTubeIcon size={ICON_SIZE} />} handle={athlete.youtube_handle} followers={athlete.youtube_followers} onSave={(h, f) => updateField({ youtube_handle: h, youtube_followers: f })} platform="youtube" athleteId={athleteId} onEnriched={fetchAthlete} />
               </div>
+            </div>
             </div>
           )}
 

@@ -1,5 +1,11 @@
 /**
- * Google Gemini API (Generative Language API v1beta).
+ * Google Gemini API.
+ *
+ * GDPR NOTE (2026-04-21): attualmente si usa Generative Language API (USA).
+ * Per compliance GDPR, è attiva la versione Vertex AI EU (vedi `vertex.ts`)
+ * controllata via `VERTEX_ENABLED=true` + `GCP_PROJECT_ID` + `GCP_LOCATION=europe-west1`.
+ * Il routing automatico preferisce Vertex EU quando configurato.
+ *
  * Endpoint: https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={GEMINI_API_KEY}
  * Request body must use "contents" array with "parts", not "messages".
  */

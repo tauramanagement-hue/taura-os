@@ -789,11 +789,15 @@ const LandingPage = () => {
             <span className="font-bold">TAURA OS</span>
             <span className="text-[10px]">© {new Date().getFullYear()}</span>
           </div>
-          <div className="flex gap-6">
+          <div className="flex flex-wrap gap-x-5 gap-y-2 justify-center">
             <span onClick={() => navigate("/pricing")} className="cursor-pointer hover:text-foreground transition-colors">Piani</span>
             <a href="#come-funziona" className="cursor-pointer hover:text-foreground transition-colors">Come funziona</a>
             <a href="mailto:os@tauramanagement.com" className="cursor-pointer hover:text-foreground transition-colors">Contatti</a>
-            <span className="cursor-pointer hover:text-foreground transition-colors">Privacy</span>
+            <span onClick={() => navigate("/privacy")} className="cursor-pointer hover:text-foreground transition-colors">Privacy</span>
+            <span onClick={() => navigate("/terms")} className="cursor-pointer hover:text-foreground transition-colors">Termini</span>
+            <span onClick={() => navigate("/cookies")} className="cursor-pointer hover:text-foreground transition-colors">Cookie</span>
+            <span onClick={() => navigate("/ai-disclosure")} className="cursor-pointer hover:text-foreground transition-colors">AI Disclosure</span>
+            <span onClick={() => navigate("/legal")} className="cursor-pointer hover:text-foreground transition-colors">Legal</span>
           </div>
         </div>
       </footer>

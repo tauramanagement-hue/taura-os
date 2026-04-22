@@ -3,6 +3,8 @@ import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2";
 import { callAnthropic, sanitizeMessages, MODELS } from "../_shared/anthropic.ts";
 import { routeRequest } from "../_shared/llm-router.ts";
 import { convertAnthropicStreamToOpenAI, convertGeminiStreamToOpenAI } from "../_shared/stream-converter.ts";
+import { audit, extractClientIp } from "../_shared/audit.ts";
+import { anonymizePII } from "../_shared/anonymize.ts";
 
 // ─── Action tool definitions (Anthropic tool-use format) ──────────────────
 const AI_TOOLS = [
@@ -489,13 +491,17 @@ async function detectActionAndReturnConfirmation(
         //   model never sees an assistant turn as the last prompt
         messages: sanitizeMessages((() => {
           const rawSlice = messages.slice(-6).map((m: { role: string; content: unknown }) => {
+            if (m.role === "user" && typeof m.content === "string") {
+              return { ...m, content: anonymizePII(m.content).text };
+            }
             if (m.role === "assistant" && typeof m.content === "string" && m.content.length > 500) {
               return { ...m, content: m.content.slice(0, 500) };
             }
             return m;
           });
           const lastIsUser = rawSlice.length > 0 && rawSlice[rawSlice.length - 1].role === "user";
-          return lastIsUser ? rawSlice : [...rawSlice, { role: "user", content: userMsg }];
+          const anonUserMsg = anonymizePII(userMsg).text;
+          return lastIsUser ? rawSlice : [...rawSlice, { role: "user", content: anonUserMsg }];
         })()),
       }),
     });
@@ -982,6 +988,38 @@ Deno.serve(async (req: Request) => {
           resolvedUserId = user.id;
           agencyPlan = (profile as { agencies?: { plan?: string } }).agencies?.plan || "free";
 
+          // GDPR Art.7 — block if user explicitly revoked ai_processing consent
+          const { data: aiConsent } = await adminClient
+            .from("user_consents")
+            .select("granted, revoked_at")
+            .eq("user_id", user.id)
+            .eq("consent_type", "ai_processing")
+            .order("granted_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          if (aiConsent && (aiConsent.revoked_at !== null || aiConsent.granted === false)) {
+            return new Response(
+              JSON.stringify({
+                code: "AI_CONSENT_REVOKED",
+                message: "Hai revocato il consenso al trattamento AI. Riattivalo da Impostazioni → Privacy e Dati per usare la chat.",
+              }),
+              { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+            );
+          }
+
+          // GDPR Art.30 — fire-and-forget audit log (non-blocking)
+          audit(adminClient as never, {
+            actor_id: user.id,
+            agency_id: agencyId,
+            action: "ai_call",
+            resource_type: "chat",
+            ip: extractClientIp(req),
+            metadata: {
+              message_count: Array.isArray(messages) ? messages.length : 0,
+              plan: agencyPlan,
+            },
+          }).catch(() => {});
+
           const campaignIds = (await adminClient.from("campaigns").select("id").eq("agency_id", agencyId)).data?.map((c: { id: string }) => c.id) || [];
 
           const [athletesRes, contractsRes, conflictsRes, notificationsRes, campaignsRes, deliverablesRes] = await Promise.all([
@@ -1365,13 +1403,24 @@ ${contextBlock}`;
     // 22s hard timeout: if the LLM call hangs, return a graceful message
     // rather than leaving the client spinning indefinitely.
     const LLM_TIMEOUT_MS = 22_000;
+
+    // GDPR Art.25 — anonymize PII typed by the user before sending to LLM.
+    // The systemPrompt/contextBlock (built from DB) is NOT anonymized — the AI
+    // needs real athlete names and contract data to answer questions correctly.
+    const anonymizedMessages = messages.map((m: { role: string; content: unknown }) => {
+      if (m.role === "user" && typeof m.content === "string") {
+        return { ...m, content: anonymizePII(m.content).text };
+      }
+      return m;
+    });
+
     let response: Response;
     try {
       response = await Promise.race([
         callAnthropic({
           level: routing.level,
           system: systemPrompt,
-          messages,
+          messages: anonymizedMessages,
           stream: true,
           max_tokens: routing.level === "L3" ? 8192 : routing.level === "L2" ? 4096 : 2048,
           temperature: routing.level === "L1" ? 0.2 : routing.level === "L2" ? 0.15 : 0.1,
