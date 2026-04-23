@@ -46,13 +46,8 @@ import {
   type RoutingDecision,
 } from "../../../src/lib/ai/complexityRouter.ts";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers":
-    "Content-Type, Authorization, X-Client-Info, Apikey",
-  "X-Content-Type-Options": "nosniff",
-};
+// @ts-ignore
+import { buildCorsHeaders } from "../_shared/cors.ts";
 
 // ----------------------------------------------------------------------------
 // Request schema — accept both legacy and spec forms.
@@ -198,6 +193,7 @@ function detectBigPenalty(text: string, entities: QIEClassification["entities"])
 // Main handler
 // ----------------------------------------------------------------------------
 Deno.serve(async (req: Request) => {
+  const corsHeaders = { ...buildCorsHeaders(req), "X-Content-Type-Options": "nosniff" };
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 200, headers: corsHeaders });
   }
@@ -407,10 +403,12 @@ Deno.serve(async (req: Request) => {
       /* swallow */
     }
 
-    return new Response(JSON.stringify({ error: msg }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    const traceId = crypto.randomUUID();
+    console.error("[qie-router] trace_id:", traceId, msg);
+    return new Response(
+      JSON.stringify({ code: "INTERNAL", message: "Errore interno.", trace_id: traceId }),
+      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
   }
 });
 

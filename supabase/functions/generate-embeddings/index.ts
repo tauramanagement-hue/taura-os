@@ -1,12 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-  "Access-Control-Allow-Headers":
-    "Content-Type, Authorization, X-Client-Info, Apikey",
-};
+import { buildCorsHeaders } from "../_shared/cors.ts";
 
 interface EmbeddingRequest {
   contract_ids?: string[];
@@ -121,6 +115,7 @@ async function generateEmbedding(
 }
 
 Deno.serve(async (req: Request) => {
+  const corsHeaders = buildCorsHeaders(req);
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 200, headers: corsHeaders });
   }
@@ -276,15 +271,11 @@ Deno.serve(async (req: Request) => {
       },
     );
   } catch (e) {
-    console.error("generate-embeddings error:", e);
+    const traceId = crypto.randomUUID();
+    console.error("[generate-embeddings] fatal", { trace_id: traceId, message: e instanceof Error ? e.message : "unknown" });
     return new Response(
-      JSON.stringify({
-        error: e instanceof Error ? e.message : "Unknown error",
-      }),
-      {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      },
+      JSON.stringify({ code: "INTERNAL", message: "Errore interno.", trace_id: traceId }),
+      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   }
 });

@@ -8,9 +8,11 @@
  */
 
 import { callGemini, GEMINI_MODELS } from "./gemini.ts";
+import { callVertex, VERTEX_MODELS } from "./vertex.ts";
 
 const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
+const VERTEX_ENABLED = Deno.env.get("VERTEX_ENABLED") === "true";
 
 export const MODELS = {
   L1_GEMINI_FAST: GEMINI_MODELS.FAST,
@@ -157,8 +159,21 @@ export async function callAnthropic(params: {
   const hasFile = hasFileOrImageContent(params.messages);
   const level = params.level;
 
-  // ---- L1: Gemini Fast ----
+  // ---- L1: Vertex AI EU (GDPR-compliant) or Gemini Fast ----
   if (level === "L1") {
+    // GDPR compliance: Use Vertex AI EU (europe-west1) when available instead of USA Gemini endpoint
+    if (VERTEX_ENABLED) {
+      return await callVertex({
+        model: VERTEX_MODELS.FAST,
+        system: params.system,
+        messages: params.messages,
+        max_tokens: params.max_tokens ?? 2048,
+        stream: params.stream ?? false,
+        temperature: params.temperature ?? 0.2,
+      });
+    }
+    // Fallback: USA-based Generative Language API (if Vertex not configured)
+    console.warn("[L1] VERTEX_ENABLED not configured — using USA Gemini endpoint (not GDPR-compliant for EU)");
     return await callGemini({
       model: GEMINI_MODELS.FAST,
       system: params.system,
@@ -169,9 +184,22 @@ export async function callAnthropic(params: {
     });
   }
 
-  // ---- L2: mix Gemini Mid + Claude Sonnet ----
+  // ---- L2: mix Vertex AI EU + Claude Sonnet ----
   if (level === "L2") {
     if (useGeminiForL2()) {
+      // GDPR compliance: Use Vertex AI EU when available instead of USA Gemini endpoint
+      if (VERTEX_ENABLED) {
+        return await callVertex({
+          model: VERTEX_MODELS.MID,
+          system: params.system,
+          messages: params.messages,
+          max_tokens: params.max_tokens ?? 4096,
+          stream: params.stream ?? false,
+          temperature: params.temperature ?? 0.3,
+        });
+      }
+      // Fallback: USA-based Generative Language API
+      console.warn("[L2] VERTEX_ENABLED not configured — using USA Gemini endpoint (not GDPR-compliant for EU)");
       return await callGemini({
         model: GEMINI_MODELS.MID,
         system: params.system,
@@ -206,6 +234,19 @@ export async function callAnthropic(params: {
 
   // Con contenuto file (PDF/immagini) usiamo sempre Gemini (Anthropic non supporta PDF inline)
   if (hasFile) {
+    // GDPR compliance: Use Vertex AI EU for file processing when available
+    if (VERTEX_ENABLED) {
+      return await callVertex({
+        model: VERTEX_MODELS.MID,
+        system: params.system,
+        messages: params.messages,
+        max_tokens: params.max_tokens ?? 8192,
+        stream: false,
+        temperature: params.temperature ?? 0.1,
+      });
+    }
+    // Fallback: USA-based Generative Language API
+    console.warn("[file-upload] VERTEX_ENABLED not configured — using USA Gemini endpoint (not GDPR-compliant for EU)");
     return await callGemini({
       model: GEMINI_MODELS.MID,
       system: params.system,
@@ -217,6 +258,19 @@ export async function callAnthropic(params: {
   }
 
   if (model.includes("gemini") || model === MODELS.L1_GEMINI_FAST || model === GEMINI_MODELS.FAST) {
+    // GDPR compliance: Use Vertex AI EU when available
+    if (VERTEX_ENABLED) {
+      return await callVertex({
+        model: VERTEX_MODELS.FAST,
+        system: params.system,
+        messages: params.messages,
+        max_tokens: params.max_tokens ?? 2048,
+        stream: params.stream ?? false,
+        temperature: params.temperature ?? 0.2,
+      });
+    }
+    // Fallback: USA-based Generative Language API
+    console.warn("[legacy-gemini] VERTEX_ENABLED not configured — using USA Gemini endpoint (not GDPR-compliant for EU)");
     return await callGemini({
       model: GEMINI_MODELS.FAST,
       system: params.system,

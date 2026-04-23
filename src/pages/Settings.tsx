@@ -97,14 +97,29 @@ const SettingsPage = () => {
   };
 
   const exportCSV = async (type: "contracts" | "athletes") => {
+    if (!agency?.id) return;
     const { data, error } = type === "contracts"
-      ? await supabase.from("contracts").select("brand, contract_type, value, status, start_date, end_date, athlete_id, athletes(full_name)").csv()
-      : await supabase.from("athletes").select("full_name, sport, category, status, nationality, instagram_handle, instagram_followers, tiktok_handle, tiktok_followers, youtube_handle, youtube_followers").csv();
+      ? await supabase.from("contracts").select("brand, contract_type, value, status, start_date, end_date, athlete_id, athletes(full_name)").eq("agency_id", agency.id).csv()
+      : await supabase.from("athletes").select("full_name, sport, category, status, nationality, instagram_handle, instagram_followers, tiktok_handle, tiktok_followers, youtube_handle, youtube_followers").eq("agency_id", agency.id).csv();
     if (error || !data) { toast.error("Errore export"); return; }
     const blob = new Blob([data as any], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a"); a.href = url; a.download = `taura_${type}_${new Date().toISOString().split("T")[0]}.csv`; a.click();
     URL.revokeObjectURL(url);
+    // GDPR Art.30 — export of personal data must be logged for accountability
+    try {
+      const csvRows = typeof data === "string" ? data.split("\n").length - 1 : 0;
+      await supabase.from("audit_log").insert({
+        actor_id: (await supabase.auth.getUser()).data.user?.id,
+        agency_id: agency.id,
+        action: "export_csv",
+        resource_type: type,
+        resource_id: null,
+        metadata: { row_count: csvRows, format: "csv" },
+      } as any);
+    } catch (err) {
+      console.warn("audit_log insert failed", err);
+    }
     toast.success(`${type === "contracts" ? "Contratti" : "Roster"} esportati`);
   };
 

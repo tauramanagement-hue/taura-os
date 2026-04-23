@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import { useAgencyContext } from "@/hooks/useAgencyContext";
 import { SeverityBadge } from "@/components/taura/ui-primitives";
 import { ExternalLink, CheckCircle } from "lucide-react";
 import { toast } from "sonner";
@@ -25,17 +26,23 @@ const sevMap: Record<string, "ALTO" | "MEDIO" | "INFO"> = {
 
 const AlertsPage = () => {
   const navigate = useNavigate();
+  const { agencyId } = useAgencyContext();
   const [conflicts, setConflicts] = useState<ConflictRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [resolvingId, setResolvingId] = useState<string | null>(null);
   const [resolutionNote, setResolutionNote] = useState("");
   const [showResolved, setShowResolved] = useState(false);
 
-  useEffect(() => { fetchConflicts(); }, [showResolved]);
+  useEffect(() => { if (agencyId) fetchConflicts(); }, [showResolved, agencyId]);
 
   const fetchConflicts = async () => {
+    if (!agencyId) return;
     setLoading(true);
-    let query = supabase.from("conflicts").select("*").order("created_at", { ascending: false });
+    let query = supabase
+      .from("conflicts")
+      .select("*")
+      .eq("agency_id", agencyId)
+      .order("created_at", { ascending: false });
     if (!showResolved) query = query.eq("status", "open");
     const { data } = await query;
     setConflicts((data as ConflictRow[]) || []);
@@ -54,10 +61,12 @@ const AlertsPage = () => {
       toast.error("Aggiungi almeno un key point numerico (es. 'tagliando 10k', '+€10.000', 'spostato 15/03 → 22/03').");
       return;
     }
+    if (!agencyId) return;
     const { error } = await supabase
       .from("conflicts")
       .update({ status: "resolved", resolution_note: resolutionNote.trim() } as any)
-      .eq("id", id);
+      .eq("id", id)
+      .eq("agency_id", agencyId);
 
     if (error) {
       toast.error("Errore: " + error.message);

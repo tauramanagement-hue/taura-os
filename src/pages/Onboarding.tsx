@@ -169,23 +169,21 @@ const OnboardingPage = () => {
   const handlePlanSelect = async (plan: Plan) => {
     setSelectedPlan(plan.id);
     if (!user?.email || !savedAgencyId) return;
-    await supabase.from("waitlist").upsert(
-      {
-        email: user.email.toLowerCase(),
-        plan_interest: plan.id,
-        agency_id: savedAgencyId,
-        source: "onboarding",
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "email" }
-    );
+    await supabase.rpc("join_waitlist", {
+      p_email: user.email.toLowerCase(),
+      p_plan_interest: plan.id,
+      p_source: "onboarding",
+      p_agency_id: savedAgencyId,
+    });
   };
 
   const finishOnboarding = async () => {
     try { localStorage.setItem("taura:first_run", "1"); } catch {}
-    // GDPR Art.7 — record consent for OAuth users who skipped Login form
+    // GDPR Art.7 — consent MUST be recorded before granting access.
+    // Silencing this error would let users past the gate without a valid
+    // consent record, which is a compliance violation.
     try {
-      await supabase.functions.invoke("consent-webhook", {
+      const { error } = await supabase.functions.invoke("consent-webhook", {
         body: {
           source: "onboarding",
           consents: [
@@ -196,7 +194,12 @@ const OnboardingPage = () => {
           ],
         },
       });
-    } catch {}
+      if (error) throw error;
+    } catch (err) {
+      console.error("Consent registration failed:", err);
+      toast.error("Errore registrazione consensi. Riprova o contatta il supporto.");
+      return;
+    }
     toast.success("Benvenuto in Taura OS!");
     navigate("/dashboard");
   };

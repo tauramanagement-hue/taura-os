@@ -2,14 +2,16 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { callAnthropic, MODELS } from "../_shared/anthropic.ts";
 import { parseGeminiJsonResponse } from "../_shared/gemini.ts";
+import { buildCorsHeaders } from "../_shared/cors.ts";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey",
-};
+// Social handles: letters, digits, dots, underscores, hyphens only.
+// Max 50 chars — real platforms cap lower, but 50 gives us headroom.
+// Blocks any URL / path / whitespace / control chars that could drive SSRF
+// or be injected into the LLM prompt.
+const HANDLE_RE = /^[a-zA-Z0-9._-]{1,50}$/;
 
 Deno.serve(async (req: Request) => {
+  const corsHeaders = buildCorsHeaders(req);
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 200, headers: corsHeaders });
   }
@@ -23,6 +25,13 @@ Deno.serve(async (req: Request) => {
     const validPlatforms = ["instagram", "tiktok", "youtube"];
     if (!validPlatforms.includes(platform)) {
       throw new Error("platform must be one of: instagram, tiktok, youtube");
+    }
+
+    if (typeof handle !== "string" || !HANDLE_RE.test(handle.trim().replace(/^@/, ""))) {
+      return new Response(
+        JSON.stringify({ code: "INVALID_HANDLE", message: "Handle format not allowed" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
     }
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
@@ -142,10 +151,10 @@ Rispondi SOLO con JSON valido, senza markdown.`;
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (e) {
-    console.error("enrich-social error:", e);
-    return new Response(JSON.stringify({ error: e instanceof Error ? e.message : "Unknown error" }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    console.error("[enrich-social] error", { message: e instanceof Error ? e.message : "unknown" });
+    return new Response(
+      JSON.stringify({ code: "INTERNAL", message: "Operazione fallita" }),
+      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
   }
 });

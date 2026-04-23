@@ -2,13 +2,10 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { callAnthropic, MODELS } from "../_shared/anthropic.ts";
 import { parseGeminiJsonResponse } from "../_shared/gemini.ts";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
-};
+import { buildCorsHeaders } from "../_shared/cors.ts";
 
 serve(async (req) => {
+  const corsHeaders = buildCorsHeaders(req);
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   const parseAmount = (raw: string): number | null => {
@@ -179,11 +176,12 @@ Se non ci sono modifiche numeriche chiare, usa "note_only".`;
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (e) {
-    console.error("apply-resolution error:", e);
-    return new Response(JSON.stringify({ error: e instanceof Error ? e.message : "Unknown" }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    const traceId = crypto.randomUUID();
+    console.error("[apply-resolution] fatal", { trace_id: traceId, message: e instanceof Error ? e.message : "unknown" });
+    return new Response(
+      JSON.stringify({ code: "INTERNAL", message: "Errore interno.", trace_id: traceId }),
+      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
   }
 });
 

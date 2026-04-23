@@ -2,12 +2,8 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { callAnthropic, MODELS } from "../_shared/anthropic.ts";
 import { parseGeminiJsonResponse } from "../_shared/gemini.ts";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
-};
+import { validateMagicBytes } from "../_shared/file-validation.ts";
+import { buildCorsHeaders } from "../_shared/cors.ts";
 
 const toIsoDate = (d: Date) => d.toISOString().split("T")[0];
 
@@ -83,6 +79,7 @@ const levenshtein = (a: string, b: string): number => {
 };
 
 serve(async (req) => {
+  const corsHeaders = buildCorsHeaders(req);
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
@@ -133,6 +130,22 @@ serve(async (req) => {
         });
       }
       const bytes = new Uint8Array(arrayBuffer);
+
+      // Magic-bytes check before passing bytes to the LLM — stops renamed
+      // executables / mismatched extensions from reaching Gemini.
+      const fname = String(original_name || file_url).split("/").pop() ?? "";
+      const magic = validateMagicBytes(bytes, fname);
+      if (!magic.ok) {
+        console.warn(`[parse-contract] magic-bytes rejected ${fname}: ${magic.reason}`);
+        return new Response(
+          JSON.stringify({
+            code: "INVALID_FILE_TYPE",
+            message: "Il contenuto del file non corrisponde all'estensione.",
+          }),
+          { status: 415, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+
       const base64Content = base64FromBytes(bytes);
 
       const lower = String(original_name || file_url).toLowerCase();
@@ -854,10 +867,11 @@ ATTENZIONE: Se un campo non è presente nel documento, usa null. Per value usa S
       { headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   } catch (e) {
-    console.error("parse-contract error:", e);
-    return new Response(JSON.stringify({ error: e instanceof Error ? e.message : "Unknown error" }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    const traceId = crypto.randomUUID();
+    console.error("[parse-contract] fatal", { trace_id: traceId, message: e instanceof Error ? e.message : "unknown" });
+    return new Response(
+      JSON.stringify({ code: "INTERNAL", message: "Errore interno.", trace_id: traceId }),
+      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
   }
 });

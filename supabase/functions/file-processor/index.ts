@@ -18,12 +18,8 @@
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey",
-};
+import { validateMagicBytes } from "../_shared/file-validation.ts";
+import { buildCorsHeaders } from "../_shared/cors.ts";
 
 const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY") ?? "";
 const GEMINI_VISION_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
@@ -163,6 +159,7 @@ async function saveExtraction(
 
 // ── Main handler ────────────────────────────────────────────────────────────
 Deno.serve(async (req: Request) => {
+  const corsHeaders = buildCorsHeaders(req);
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 200, headers: corsHeaders });
   }
@@ -214,8 +211,9 @@ Deno.serve(async (req: Request) => {
       .download(path);
 
     if (downloadErr || !fileData) {
+      console.warn("[file-processor] download error:", downloadErr?.message);
       return new Response(
-        JSON.stringify({ error: `File non trovato: ${downloadErr?.message ?? "unknown"}` }),
+        JSON.stringify({ code: "FILE_NOT_FOUND", message: "File non trovato." }),
         { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
@@ -233,8 +231,23 @@ Deno.serve(async (req: Request) => {
     const mimeType = mimeFromPath(path);
     const fileName = path.split("/").pop() ?? path;
 
-    // Convert to base64
     const uint8 = new Uint8Array(arrayBuf);
+
+    // Defense against content-type spoofing: confirm the first bytes match the
+    // declared extension before we hand the bytes to Gemini Vision.
+    const magic = validateMagicBytes(uint8, fileName);
+    if (!magic.ok) {
+      console.warn(`[file-processor] magic-bytes rejected ${fileName}: ${magic.reason}`);
+      return new Response(
+        JSON.stringify({
+          code: "INVALID_FILE_TYPE",
+          message: "Il contenuto del file non corrisponde all'estensione.",
+        }),
+        { status: 415, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    // Convert to base64
     let binary = "";
     for (let i = 0; i < uint8.length; i++) binary += String.fromCharCode(uint8[i]);
     const base64 = btoa(binary);
@@ -263,11 +276,12 @@ Deno.serve(async (req: Request) => {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (e) {
+    const traceId = crypto.randomUUID();
     const msg = e instanceof Error ? e.message : "Unknown error";
-    console.error("[file-processor] error:", msg);
-    return new Response(JSON.stringify({ error: msg }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    console.error("[file-processor] fatal", { trace_id: traceId, message: msg });
+    return new Response(
+      JSON.stringify({ code: "INTERNAL", message: "Errore interno.", trace_id: traceId }),
+      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
   }
 });

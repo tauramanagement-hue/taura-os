@@ -26,7 +26,7 @@ export const PLANS: Plan[] = [
       "Tutte le funzioni Pro",
       "Onboarding 1-on-1",
       "Feedback diretto al team",
-      "Prezzo bloccato al rinnovo",
+      "Prezzo scontato al rinnovo",
     ],
   },
   {
@@ -35,10 +35,9 @@ export const PLANS: Plan[] = [
     tagline: "Per agenzie in crescita",
     price: "€99",
     period: "al mese",
-    featured: true,
     features: [
-      "Fino a 50 contratti",
-      "100 query AI al giorno",
+      "Fino a 30 contratti",
+      "40 query AI al giorno",
       "Conflict Scanner automatico",
       "Ricerca semantica nei contratti",
       "3 utenti inclusi",
@@ -50,9 +49,10 @@ export const PLANS: Plan[] = [
     tagline: "Per team strutturati",
     price: "€279",
     period: "al mese",
+    featured: true,
     features: [
       "Contratti illimitati",
-      "500 query AI al giorno",
+      "200 query AI al giorno",
       "Deal Intelligence",
       "Proof Package generator",
       "10 utenti inclusi",
@@ -64,6 +64,7 @@ export const PLANS: Plan[] = [
     tagline: "Per top agency",
     price: "Custom",
     period: "",
+    badge: "Promo",
     features: [
       "Query AI illimitate",
       "Modello AI dedicato",

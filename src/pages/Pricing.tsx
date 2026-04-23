@@ -47,17 +47,11 @@ const PricingPage = () => {
     }
     setStatus("submitting");
     setErrorMsg("");
-    const { error } = await supabase
-      .from("waitlist")
-      .upsert(
-        {
-          email: normalized,
-          plan_interest: selectedPlan,
-          source: "pricing_page",
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: "email" }
-      );
+    const { error } = await supabase.rpc("join_waitlist", {
+      p_email: normalized,
+      p_plan_interest: selectedPlan,
+      p_source: "pricing_page",
+    });
     if (error) {
       setStatus("error");
       setErrorMsg("Qualcosa è andato storto. Riprova tra poco.");

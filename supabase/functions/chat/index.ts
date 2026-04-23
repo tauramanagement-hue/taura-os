@@ -5,6 +5,8 @@ import { routeRequest } from "../_shared/llm-router.ts";
 import { convertAnthropicStreamToOpenAI, convertGeminiStreamToOpenAI } from "../_shared/stream-converter.ts";
 import { audit, extractClientIp } from "../_shared/audit.ts";
 import { anonymizePII } from "../_shared/anonymize.ts";
+import { buildCorsHeaders } from "../_shared/cors.ts";
+import { checkRateLimit } from "../_shared/rate-limit.ts";
 
 // ─── Action tool definitions (Anthropic tool-use format) ──────────────────
 const AI_TOOLS = [
@@ -124,12 +126,69 @@ const ACTION_INTENT_RE = {
 const FILE_QUERY_RE =
   /\b(leggi|analizza|apri|mostra il contenuto|cosa (dice|c[''']è nel)|estratto|estratta|testo del|clausole del|brief di|contratto di|media kit di|leggimi|apri il)\b/i;
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
+// Module-level CORS default — used by helpers that don't have access to the
+// request. The Deno.serve handler below shadows this with request-scoped
+// headers via buildCorsHeaders(req) so dev origins (localhost) and Vercel
+// preview URLs are honoured correctly.
+const corsHeaders: Record<string, string> = {
+  "Access-Control-Allow-Origin": "https://tauraos.com",
   "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey",
   "Access-Control-Expose-Headers": "X-Model-Tier, X-Model-Score, X-Model-Name",
+  "Vary": "Origin",
 };
+
+// Strong prompt-injection guard. Covers Italian + English + delimiter tricks.
+// Keep narrow: false positives block legitimate chat, so we target canonical
+// attack phrasings rather than every possible rephrasing.
+const INJECTION_RE = new RegExp(
+  [
+    // Italian
+    "dimentica\\s+(tutto|tutte|le\\s+istruzioni|il\\s+contesto|la\\s+conversazione|il\\s+sistema|il\\s+prompt)",
+    "ignora\\s+(tutto|le\\s+istruzioni|il\\s+sistema|il\\s+prompt|precedent)",
+    "sei\\s+ora\\s+un",
+    "d['']ora\\s+in\\s+poi\\s+sei",
+    "nuovo\\s+ruolo",
+    "nuova\\s+personalit",
+    "rivelami\\s+(il\\s+)?prompt",
+    "mostrami\\s+(il\\s+)?system\\s+prompt",
+    "dump\\s+(del\\s+)?system",
+    // English
+    "ignore\\s+(all\\s+)?(previous|prior|above)\\s+(instructions|prompts)",
+    "forget\\s+(all|everything|prior|previous)",
+    "you\\s+are\\s+now\\s+(a|an)",
+    "act\\s+as\\s+(if\\s+)?(a\\s+|an\\s+)?(different|new)",
+    "reveal\\s+(the\\s+)?system\\s+prompt",
+    "show\\s+me\\s+(the\\s+)?(internal|system)\\s+prompt",
+    // Delimiter / framing injection
+    "<\\s*\\|\\s*system\\s*\\|\\s*>",
+    "\\[\\s*system\\s*\\]",
+    "###\\s*system",
+    // DAN / jailbreak markers
+    "\\bDAN\\b",
+    "developer\\s+mode",
+    "jailbreak",
+  ].join("|"),
+  "i",
+);
+
+// Tertiary guard: decode common obfuscation (base64, ROT13 hints) before
+// running the main regex. Keep fast — we only scan the first 2KB.
+function containsInjectionAttempt(rawText: string): boolean {
+  const text = rawText.slice(0, 2048);
+  if (INJECTION_RE.test(text)) return true;
+  // Base64 blob long enough to hide a prompt (>60 chars, padded)
+  const b64Match = text.match(/[A-Za-z0-9+/]{60,}={0,2}/g);
+  if (b64Match) {
+    for (const blob of b64Match.slice(0, 3)) {
+      try {
+        const decoded = atob(blob);
+        if (INJECTION_RE.test(decoded)) return true;
+      } catch { /* not base64, skip */ }
+    }
+  }
+  return false;
+}
 
 const normalizeText = (value: string) =>
   String(value || "")
@@ -324,16 +383,21 @@ async function executeTool(
               .in("campaign_id", campaignIds)
           : { data: [] };
 
+        // PII-safe log: hint length + agency fan-out only, no user text.
         console.log(
-          "[executeTool] deliverable hint:", tool.deliverable_hint,
-          "| agency campaigns:", campaignIds.length,
-          "| deliverables fetched:", (data ?? []).length,
+          "[executeTool] deliverable match",
+          "| hint_len:", (tool.deliverable_hint ?? "").length,
+          "| agency_campaigns:", campaignIds.length,
+          "| deliverables_fetched:", (data ?? []).length,
         );
 
         const hint = normalizeText(tool.deliverable_hint ?? "");
         const hintTokens = hint.split(" ").filter((t: string) => t.length > 2);
 
-        const match = (data || []).find((d: {
+        // Mutative actions require high-confidence match.
+        // We require BOTH an athlete and a brand token to overlap — single-token
+        // matches (e.g. "Nike") across many deliverables would pick wrong rows.
+        const candidates = (data || []).filter((d: {
           content_type?: string;
           scheduled_date?: string;
           athletes?: { full_name?: string };
@@ -341,14 +405,16 @@ async function executeTool(
         }) => {
           const athleteName = normalizeText((d.athletes as { full_name?: string })?.full_name ?? "");
           const brandName   = normalizeText((d.campaigns as { brand?: string })?.brand ?? "");
-          // Match if hint tokens overlap with athlete name OR brand name (more permissive than .every())
           const athleteMatch = hintTokens.some((t: string) => athleteName.includes(t));
           const brandMatch   = hintTokens.some((t: string) => brandName.includes(t));
-          return athleteMatch || brandMatch;
+          return athleteMatch && brandMatch;
         });
 
-        console.log("[executeTool] matched deliverable:", match?.id ?? "none");
-        id = match?.id;
+        console.log("[executeTool] match_count:", candidates.length);
+        if (candidates.length > 1) {
+          return "⚠️ Più deliverable combaciano con la descrizione. Specifica atleta, brand e data esatta per procedere.";
+        }
+        id = candidates[0]?.id;
       }
       if (!id) return "⚠️ Deliverable non trovato. Specifica atleta, tipo contenuto e data.";
       const { error } = await adminClient
@@ -694,18 +760,64 @@ function streamDirectText(text: string, headers: Record<string, string>): Respon
 }
 
 Deno.serve(async (req: Request) => {
+  // Shadow module-level corsHeaders with request-scoped allowlist.
+  const reqCorsHeaders = buildCorsHeaders(req);
+  // Re-bind the outer identifier so downstream helpers referenced in this
+  // closure also see the per-request headers. (The module-level constant
+  // remains as a safe fallback if any helper is ever called without a
+  // request context.)
+  Object.assign(corsHeaders, reqCorsHeaders);
+
   if (req.method === "OPTIONS") return new Response(null, { status: 200, headers: corsHeaders });
 
   try {
+    // ── Auth probe (skip body parse if no bearer) + per-user rate limit ──
+    const authHeader = req.headers.get("authorization") ?? "";
+    const token = authHeader.replace("Bearer ", "");
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    let rateLimitUserId: string | null = null;
+    let rateLimitAgencyId: string | null = null;
+    if (token) {
+      try {
+        const probe = createClient(supabaseUrl, serviceKey);
+        const { data: { user } } = await probe.auth.getUser(token);
+        if (user) {
+          rateLimitUserId = user.id;
+          const { data: prof } = await probe.from("profiles").select("agency_id").eq("id", user.id).maybeSingle();
+          rateLimitAgencyId = prof?.agency_id ?? null;
+        }
+      } catch { /* fall through — let normal auth error paths handle */ }
+    }
+
+    if (rateLimitUserId) {
+      const admin = createClient(supabaseUrl, serviceKey);
+      // Per-user: 30 req/min
+      const userRl = await checkRateLimit(admin, "chat:user", rateLimitUserId, 30, 60);
+      if (!userRl.allowed) {
+        return new Response(
+          JSON.stringify({ code: "RATE_LIMITED", message: "Troppe richieste — riprova tra poco." }),
+          { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json", "Retry-After": String(userRl.retryAfterSec) } },
+        );
+      }
+      // Per-agency daily budget: 2000 req/day (guards against a single runaway
+      // script from one tenant exhausting the LLM budget).
+      if (rateLimitAgencyId) {
+        const agencyRl = await checkRateLimit(admin, "chat:agency-daily", rateLimitAgencyId, 2000, 86_400);
+        if (!agencyRl.allowed) {
+          return new Response(
+            JSON.stringify({ code: "AGENCY_BUDGET_EXCEEDED", message: "Budget giornaliero AI agenzia esaurito." }),
+            { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json", "Retry-After": String(agencyRl.retryAfterSec) } },
+          );
+        }
+      }
+    }
+
     const body = await req.json();
     const messages = body.messages ?? [];
 
     // ── Execution path: confirmed tool action ─────────────────────────────
     if (body.execute_confirmed_action && body.action_payload) {
-      const authHeader = req.headers.get("authorization") ?? "";
-      const token = authHeader.replace("Bearer ", "");
-      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-      const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
       const adminClient = createClient(supabaseUrl, serviceKey);
       const { data: { user } } = await adminClient.auth.getUser(token);
       if (!user) return new Response(JSON.stringify({ error: "Sessione scaduta" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -722,8 +834,7 @@ Deno.serve(async (req: Request) => {
       : "";
 
     // ── Prompt injection guard — instant L0 response, no LLM call ────────
-    const INJECTION_RE = /dimentica\s+(tutto|tutte|le\s+istruzioni|il\s+contesto|la\s+conversazione)|ignora\s+(tutto|le\s+istruzioni|il\s+sistema)|sei\s+ora\s+un|d'ora\s+in\s+poi\s+sei|nuovo\s+ruolo|nuova\s+personalit/i;
-    if (INJECTION_RE.test(latestUserMsg)) {
+    if (containsInjectionAttempt(latestUserMsg)) {
       return streamDirectText(
         "Sono Taura AI, assistente operativo della tua agenzia. Non posso cambiare il mio ruolo o ignorare il contesto. Come posso aiutarti con roster, contratti o campagne?",
         corsHeaders,
@@ -1444,7 +1555,7 @@ ${contextBlock}`;
     const outputStream =
       provider === "anthropic" && response.body
         ? convertAnthropicStreamToOpenAI(response.body)
-        : provider === "gemini" && response.body
+        : (provider === "gemini" || provider === "vertex-eu") && response.body
           ? convertGeminiStreamToOpenAI(response.body)
           : response.body!;
 
@@ -1458,10 +1569,11 @@ ${contextBlock}`;
       },
     });
   } catch (e) {
-    console.error("chat error:", e);
-    return new Response(JSON.stringify({ error: e instanceof Error ? e.message : "Unknown error" }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    const traceId = crypto.randomUUID();
+    console.error("[chat] fatal", { trace_id: traceId, message: e instanceof Error ? e.message : "unknown" });
+    return new Response(
+      JSON.stringify({ code: "INTERNAL", message: "Errore interno — riprova tra poco.", trace_id: traceId }),
+      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
   }
 });

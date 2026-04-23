@@ -1,5 +1,6 @@
 import { Navigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
+import Landing from "@/pages/Landing";
 
 export const RootRedirect = () => {
   const { user, loading } = useAuth();
@@ -35,5 +36,5 @@ export const RootRedirect = () => {
     return <Navigate to="/dashboard" replace />;
   }
 
-  return <Navigate to="/auth" replace />;
+  return <Landing />;
 };

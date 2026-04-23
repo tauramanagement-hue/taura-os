@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
+import { useAgencyContext } from "@/hooks/useAgencyContext";
 import { Pill } from "@/components/taura/ui-primitives";
 import { sha256Hex, getFileExt } from "@/lib/fileHash";
 import { Upload, Plus, Search, Check, Clock, FileText, ChevronRight, Trash2, Pencil, Copy, Mail, ChevronDown, ChevronUp, Send, Megaphone } from "lucide-react";
@@ -47,6 +48,7 @@ const contentTypeLabels: Record<string, { label: string; emoji: string }> = {
 const CampaignsPage = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { agencyId } = useAgencyContext();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const briefDeliverableRef = useRef<HTMLInputElement>(null);
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
@@ -67,7 +69,7 @@ const CampaignsPage = () => {
   const [delFilter, setDelFilter] = useState<"all" | "pending" | "to_publish" | "done">("all");
   const [expandedOverview, setExpandedOverview] = useState<string | null>(null);
 
-  useEffect(() => { fetchCampaigns(); }, []);
+  useEffect(() => { if (agencyId) fetchCampaigns(); }, [agencyId]);
 
   // Realtime: aggiorna deliverable quando l'AI (o chiunque) li modifica nel DB
   useEffect(() => {
@@ -92,12 +94,13 @@ const CampaignsPage = () => {
   }, []);
 
   const fetchCampaigns = async () => {
+    if (!agencyId) return;
     setLoading(true);
-    const { data, error } = await supabase.from("campaigns").select("*").order("created_at", { ascending: false });
+    const { data, error } = await supabase.from("campaigns").select("*").eq("agency_id", agencyId).order("created_at", { ascending: false });
     if (!error && data) {
       const ids = data.map((c: any) => c.id);
       if (ids.length > 0) {
-        const { data: dels } = await supabase.from("campaign_deliverables").select("campaign_id, content_approved, post_confirmed").in("campaign_id", ids);
+        const { data: dels } = await supabase.from("campaign_deliverables").select("campaign_id, content_approved, post_confirmed").eq("agency_id", agencyId).in("campaign_id", ids);
         const countsMap: Record<string, { total: number; approved: number; posted: number }> = {};
         (dels || []).forEach((d: any) => {
           if (!countsMap[d.campaign_id]) countsMap[d.campaign_id] = { total: 0, approved: 0, posted: 0 };
@@ -124,7 +127,8 @@ const CampaignsPage = () => {
   };
 
   const toggleApproval = async (del: Deliverable) => {
-    const { error } = await supabase.from("campaign_deliverables").update({ content_approved: !del.content_approved }).eq("id", del.id);
+    if (!agencyId) return;
+    const { error } = await supabase.from("campaign_deliverables").update({ content_approved: !del.content_approved }).eq("id", del.id).eq("agency_id", agencyId);
     if (error) {
       toast.error(error.message || "Errore aggiornamento approvazione");
       return;
@@ -136,7 +140,8 @@ const CampaignsPage = () => {
   };
 
   const togglePosted = async (del: Deliverable) => {
-    const { error } = await supabase.from("campaign_deliverables").update({ post_confirmed: !del.post_confirmed }).eq("id", del.id);
+    if (!agencyId) return;
+    const { error } = await supabase.from("campaign_deliverables").update({ post_confirmed: !del.post_confirmed }).eq("id", del.id).eq("agency_id", agencyId);
     if (error) {
       toast.error(error.message || "Errore aggiornamento pubblicazione");
       return;
@@ -164,10 +169,11 @@ const CampaignsPage = () => {
   };
 
   const deleteCampaign = async (campaignId: string) => {
+    if (!agencyId) return;
     if (!confirm("Eliminare questa campagna e tutti i suoi deliverable?")) return;
     try {
-      await supabase.from("campaign_deliverables").delete().eq("campaign_id", campaignId);
-      const { error } = await supabase.from("campaigns").delete().eq("id", campaignId);
+      await supabase.from("campaign_deliverables").delete().eq("campaign_id", campaignId).eq("agency_id", agencyId);
+      const { error } = await supabase.from("campaigns").delete().eq("id", campaignId).eq("agency_id", agencyId);
       if (error) throw error;
       toast.success("Campagna eliminata");
       if (selectedCampaign?.id === campaignId) { setSelectedCampaign(null); setDeliverables([]); }
@@ -176,10 +182,11 @@ const CampaignsPage = () => {
   };
 
   const renameCampaign = async (campaign: Campaign) => {
+    if (!agencyId) return;
     const nextName = prompt("Nuovo nome campagna", campaign.name)?.trim();
     if (!nextName || nextName === campaign.name) return;
     try {
-      const { error } = await supabase.from("campaigns").update({ name: nextName }).eq("id", campaign.id);
+      const { error } = await supabase.from("campaigns").update({ name: nextName }).eq("id", campaign.id).eq("agency_id", agencyId);
       if (error) throw error;
       toast.success("Nome campagna aggiornato");
       if (selectedCampaign?.id === campaign.id) {
@@ -206,7 +213,7 @@ const CampaignsPage = () => {
         if (msg.includes("exists") || (uploadError as any).statusCode === 409) { toast.error("Brief gia caricato."); return; }
         throw uploadError;
       }
-      await supabase.from("campaigns").update({ brief_file_url: fileName }).eq("id", selectedCampaign.id);
+      await supabase.from("campaigns").update({ brief_file_url: fileName }).eq("id", selectedCampaign.id).eq("agency_id", profile.agency_id);
       toast.success("Brief caricato! Estrazione AI in corso...");
       setParsing(true);
       try {
@@ -251,8 +258,8 @@ const CampaignsPage = () => {
   };
 
   const bulkApprove = async () => {
-    if (selectedIds.length === 0) return;
-    const { error } = await supabase.from("campaign_deliverables").update({ content_approved: true }).in("id", selectedIds);
+    if (selectedIds.length === 0 || !agencyId) return;
+    const { error } = await supabase.from("campaign_deliverables").update({ content_approved: true }).in("id", selectedIds).eq("agency_id", agencyId);
     if (error) { toast.error("Errore approvazione"); return; }
     toast.success(`${selectedIds.length} deliverable approvati`);
     setSelectedIds([]);
@@ -260,8 +267,8 @@ const CampaignsPage = () => {
   };
 
   const bulkPublish = async () => {
-    if (selectedIds.length === 0) return;
-    const { error } = await supabase.from("campaign_deliverables").update({ post_confirmed: true }).in("id", selectedIds);
+    if (selectedIds.length === 0 || !agencyId) return;
+    const { error } = await supabase.from("campaign_deliverables").update({ post_confirmed: true }).in("id", selectedIds).eq("agency_id", agencyId);
     if (error) { toast.error("Errore pubblicazione"); return; }
     toast.success(`${selectedIds.length} deliverable segnati come pubblicati`);
     setSelectedIds([]);
@@ -318,10 +325,10 @@ const CampaignsPage = () => {
       if (!parseErr && result?.success) {
         // Update deliverable ai_overview with parsed obligations
         const overview = result.extracted_data?.social_obligations || result.extracted_data?.obligations || `Brief ${file.name} caricato`;
-        await supabase.from("campaign_deliverables").update({ ai_overview: overview, notes: `Brief: ${fileName}` }).eq("id", deliverable.id);
+        await supabase.from("campaign_deliverables").update({ ai_overview: overview, notes: `Brief: ${fileName}` }).eq("id", deliverable.id).eq("agency_id", profile.agency_id);
         toast.success("Brief caricato e analizzato!");
       } else {
-        await supabase.from("campaign_deliverables").update({ notes: `Brief: ${fileName}` }).eq("id", deliverable.id);
+        await supabase.from("campaign_deliverables").update({ notes: `Brief: ${fileName}` }).eq("id", deliverable.id).eq("agency_id", profile.agency_id);
         toast.success("Brief caricato.");
       }
       if (selectedCampaign) fetchDeliverables(selectedCampaign);

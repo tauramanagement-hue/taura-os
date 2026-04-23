@@ -2,12 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { callAnthropic, MODELS } from "../_shared/anthropic.ts";
 import { parseGeminiJsonResponse } from "../_shared/gemini.ts";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey",
-};
+import { buildCorsHeaders } from "../_shared/cors.ts";
 
 const normalizeName = (value: string) =>
   String(value || "")
@@ -76,6 +71,7 @@ const base64FromBytes = (bytes: Uint8Array) => {
 };
 
 Deno.serve(async (req: Request) => {
+  const corsHeaders = buildCorsHeaders(req);
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 200, headers: corsHeaders });
   }
@@ -502,10 +498,11 @@ Rispondi SOLO con JSON valido:
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (e) {
-    console.error("parse-brief error:", e);
-    return new Response(JSON.stringify({ error: e instanceof Error ? e.message : "Unknown error" }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    const traceId = crypto.randomUUID();
+    console.error("[parse-brief] fatal", { trace_id: traceId, message: e instanceof Error ? e.message : "unknown" });
+    return new Response(
+      JSON.stringify({ code: "INTERNAL", message: "Errore interno.", trace_id: traceId }),
+      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
   }
 });

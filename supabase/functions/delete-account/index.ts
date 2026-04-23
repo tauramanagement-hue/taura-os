@@ -8,15 +8,10 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { audit, extractClientIp } from "../_shared/audit.ts";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
+import { buildCorsHeaders } from "../_shared/cors.ts";
 
 serve(async (req) => {
+  const corsHeaders = buildCorsHeaders(req);
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
@@ -48,7 +43,8 @@ serve(async (req) => {
 
     const { error: rpcErr } = await adminClient.rpc("soft_delete_user_data", { target_user_id: userId });
     if (rpcErr) {
-      return json({ code: "SOFT_DELETE_FAILED", message: rpcErr.message }, 500);
+      console.error("[delete-account] soft_delete_user_data error:", rpcErr.message);
+      return json({ code: "SOFT_DELETE_FAILED", message: "Operazione fallita. Contatta il supporto." }, 500);
     }
 
     const { error: dsrErr } = await adminClient.from("dsr_requests").insert({
@@ -83,18 +79,19 @@ serve(async (req) => {
       hard_delete_after: isoInDays(30),
     }, 200);
   } catch (e) {
+    const traceId = crypto.randomUUID();
     const msg = e instanceof Error ? e.message : String(e);
-    console.error("[delete-account] fatal:", msg);
-    return json({ code: "INTERNAL", message: msg }, 500);
+    console.error("[delete-account] fatal", { trace_id: traceId, message: msg });
+    return json({ code: "INTERNAL", message: "Errore interno.", trace_id: traceId }, 500);
+  }
+
+  function json(body: unknown, status: number): Response {
+    return new Response(JSON.stringify(body), {
+      status,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   }
 });
-
-function json(body: unknown, status: number): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
-  });
-}
 
 function isoInDays(n: number): string {
   return new Date(Date.now() + n * 24 * 60 * 60 * 1000).toISOString();

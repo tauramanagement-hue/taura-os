@@ -1,28 +1,36 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import { useAgencyContext } from "@/hooks/useAgencyContext";
 import { Pill } from "@/components/taura/ui-primitives";
 import { FileText, Download, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 const ReportsPage = () => {
   const navigate = useNavigate();
+  const { agencyId } = useAgencyContext();
   const [reports, setReports] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
-  useEffect(() => { fetchReports(); }, []);
+  useEffect(() => { if (agencyId) fetchReports(); }, [agencyId]);
 
   const fetchReports = async () => {
+    if (!agencyId) return;
     setLoading(true);
-    const { data } = await supabase.from("reports").select("*").order("created_at", { ascending: false });
+    const { data } = await supabase
+      .from("reports")
+      .select("*")
+      .eq("agency_id", agencyId)
+      .order("created_at", { ascending: false });
     setReports(data || []);
     setLoading(false);
   };
 
   const deleteReport = async (id: string) => {
+    if (!agencyId) return;
     if (!confirm("Eliminare questo report?")) return;
-    await supabase.from("reports").delete().eq("id", id);
+    await supabase.from("reports").delete().eq("id", id).eq("agency_id", agencyId);
     toast.success("Report eliminato");
     fetchReports();
   };

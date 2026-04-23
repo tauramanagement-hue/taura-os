@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
+import { useAgencyContext } from "@/hooks/useAgencyContext";
 import { Search, Plus, Users } from "lucide-react";
 import { toast } from "sonner";
 import AthleteCard, { type Athlete } from "@/components/taura/AthleteCard";
@@ -12,6 +13,7 @@ const AthletesPage = () => {
   const navigate = useNavigate();
   const { id: athleteId } = useParams();
   const { user } = useAuth();
+  const { agencyId } = useAgencyContext();
   const [athletes, setAthletes] = useState<Athlete[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -33,14 +35,16 @@ const AthletesPage = () => {
   const newAthleteIsMinor = computeIsMinor(newAthlete.date_of_birth);
 
   useEffect(() => {
-    if (!athleteId) fetchAthletes();
-  }, [athleteId]);
+    if (!athleteId && agencyId) fetchAthletes();
+  }, [athleteId, agencyId]);
 
   const fetchAthletes = async () => {
+    if (!agencyId) return;
     setLoading(true);
     const { data, error } = await supabase
       .from("athletes")
       .select("id, full_name, sport, category, status, instagram_followers, tiktok_followers, youtube_followers, photo_url")
+      .eq("agency_id", agencyId)
       .order("full_name");
     if (!error && data) setAthletes(data);
     setLoading(false);
@@ -82,10 +86,11 @@ const AthletesPage = () => {
   };
 
   const deleteAthlete = async (athleteId: string, athleteName: string) => {
+    if (!agencyId) return;
     if (!confirm(`Eliminare ${athleteName} dal roster? Verranno rimossi anche i deliverable associati.`)) return;
     try {
-      await supabase.from("campaign_deliverables").delete().eq("athlete_id", athleteId);
-      const { error } = await supabase.from("athletes").delete().eq("id", athleteId);
+      await supabase.from("campaign_deliverables").delete().eq("athlete_id", athleteId).eq("agency_id", agencyId);
+      const { error } = await supabase.from("athletes").delete().eq("id", athleteId).eq("agency_id", agencyId);
       if (error) throw error;
       toast.success(`${athleteName} eliminato dal roster`);
       fetchAthletes();

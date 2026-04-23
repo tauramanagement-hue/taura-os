@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
+import { useAgencyContext } from "@/hooks/useAgencyContext";
 import { Pill } from "@/components/taura/ui-primitives";
 import { sha256Hex, getFileExt } from "@/lib/fileHash";
 import { Upload, Search, Trash2, FileText } from "lucide-react";
@@ -53,6 +54,7 @@ const capitalizeType = (type: string) =>
 const ContractsPage = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { agencyId } = useAgencyContext();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [contracts, setContracts] = useState<ContractRow[]>([]);
@@ -64,13 +66,15 @@ const ContractsPage = () => {
   const [confirmation, setConfirmation] = useState<NewAthleteConfirm | null>(null);
   const [selectedNewAthletes, setSelectedNewAthletes] = useState<Record<string, boolean>>({});
 
-  useEffect(() => { fetchContracts(); }, []);
+  useEffect(() => { if (agencyId) fetchContracts(); }, [agencyId]);
 
   const fetchContracts = async () => {
+    if (!agencyId) return;
     setLoading(true);
     const { data, error } = await supabase
       .from("contracts")
       .select("id, brand, contract_type, value, status, end_date, start_date, athlete_id, ai_extracted_clauses, athletes(full_name)")
+      .eq("agency_id", agencyId)
       .order("end_date", { ascending: true });
 
     if (!error && data) {
@@ -78,8 +82,8 @@ const ContractsPage = () => {
       const ids = data.map((c: any) => c.id);
       let conflictsMap: Record<string, number> = {};
       if (ids.length > 0) {
-        const { data: conf1 } = await supabase.from("conflicts").select("contract_a_id").in("contract_a_id", ids).eq("status", "open");
-        const { data: conf2 } = await supabase.from("conflicts").select("contract_b_id").in("contract_b_id", ids).eq("status", "open");
+        const { data: conf1 } = await supabase.from("conflicts").select("contract_a_id").eq("agency_id", agencyId).in("contract_a_id", ids).eq("status", "open");
+        const { data: conf2 } = await supabase.from("conflicts").select("contract_b_id").eq("agency_id", agencyId).in("contract_b_id", ids).eq("status", "open");
         (conf1 || []).forEach((c: any) => { conflictsMap[c.contract_a_id] = (conflictsMap[c.contract_a_id] || 0) + 1; });
         (conf2 || []).forEach((c: any) => { if (c.contract_b_id) conflictsMap[c.contract_b_id] = (conflictsMap[c.contract_b_id] || 0) + 1; });
       }

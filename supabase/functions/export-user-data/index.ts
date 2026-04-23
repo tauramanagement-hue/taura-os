@@ -7,18 +7,34 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { audit, extractClientIp } from "../_shared/audit.ts";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
+import { buildCorsHeaders } from "../_shared/cors.ts";
 
 const BUCKET = "exports";
 const URL_EXPIRY_SECONDS = 60 * 60 * 24 * 7; // 7 giorni
 
+// Explicit allowlist. Each entry MUST have a filter that ensures the data
+// belongs to the requesting user (directly or via agency). Adding a table
+// here requires auditing the chosen filter column — missing filter would
+// dump every row via service_role bypass of RLS.
+type TableFilter =
+  | { kind: "user"; col: string }
+  | { kind: "agency"; col: string };
+
+const EXPORTABLE_TABLES: { name: string; filter: TableFilter }[] = [
+  { name: "profiles",              filter: { kind: "user",   col: "id" } },
+  { name: "agencies",              filter: { kind: "agency", col: "id" } },
+  { name: "athletes",              filter: { kind: "agency", col: "agency_id" } },
+  { name: "contracts",             filter: { kind: "agency", col: "agency_id" } },
+  { name: "deals",                 filter: { kind: "agency", col: "agency_id" } },
+  { name: "campaign_deliverables", filter: { kind: "agency", col: "agency_id" } },
+  { name: "notifications",         filter: { kind: "user",   col: "user_id" } },
+  { name: "user_consents",         filter: { kind: "user",   col: "user_id" } },
+  { name: "dsr_requests",          filter: { kind: "user",   col: "user_id" } },
+  { name: "audit_log",             filter: { kind: "user",   col: "actor_id" } },
+];
+
 serve(async (req) => {
+  const corsHeaders = buildCorsHeaders(req);
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
@@ -50,20 +66,6 @@ serve(async (req) => {
 
     const agencyId = profile?.agency_id ?? null;
 
-    const tables = [
-      { name: "profiles", filter: { col: "id", val: userId } },
-      { name: "agencies", filter: agencyId ? { col: "id", val: agencyId } : null },
-      { name: "athletes", filter: agencyId ? { col: "agency_id", val: agencyId } : null },
-      { name: "contracts", filter: agencyId ? { col: "agency_id", val: agencyId } : null },
-      { name: "deals", filter: agencyId ? { col: "agency_id", val: agencyId } : null },
-      { name: "campaign_deliverables", filter: agencyId ? { col: "agency_id", val: agencyId } : null },
-      { name: "chat_messages", filter: { col: "user_id", val: userId } },
-      { name: "notifications", filter: { col: "user_id", val: userId } },
-      { name: "user_consents", filter: { col: "user_id", val: userId } },
-      { name: "dsr_requests", filter: { col: "user_id", val: userId } },
-      { name: "audit_log", filter: { col: "actor_id", val: userId } },
-    ];
-
     const exportData: Record<string, unknown> = {
       _meta: {
         exported_at: new Date().toISOString(),
@@ -75,21 +77,51 @@ serve(async (req) => {
       },
     };
 
-    for (const t of tables) {
-      if (!t.filter) {
+    for (const t of EXPORTABLE_TABLES) {
+      const filterVal = t.filter.kind === "user" ? userId : agencyId;
+      if (!filterVal) {
         exportData[t.name] = [];
         continue;
       }
       const { data, error } = await adminClient
         .from(t.name)
         .select("*")
-        .eq(t.filter.col, t.filter.val);
+        .eq(t.filter.col, filterVal);
       if (error) {
-        console.warn(`[export] ${t.name} error:`, error);
-        exportData[t.name] = { error: error.message };
-      } else {
-        exportData[t.name] = data ?? [];
+        console.warn(`[export] ${t.name} error:`, error.message);
+        exportData[t.name] = { error: "fetch_failed" };
+        continue;
       }
+      // Defense-in-depth: strip rows whose agency_id does not match the caller,
+      // in case a join or mis-filter leaked cross-tenant data.
+      const rows = (data ?? []) as Record<string, unknown>[];
+      if (t.filter.kind === "agency" && agencyId) {
+        exportData[t.name] = rows.filter(
+          (r) => !("agency_id" in r) || r.agency_id === agencyId,
+        );
+      } else {
+        exportData[t.name] = rows;
+      }
+    }
+
+    // chat_messages needs a join via chat_threads (no user_id column on messages)
+    if (agencyId) {
+      const { data: threads } = await adminClient
+        .from("chat_threads")
+        .select("id")
+        .eq("user_id", userId);
+      const threadIds = (threads ?? []).map((t: any) => t.id as string);
+      if (threadIds.length > 0) {
+        const { data: msgs } = await adminClient
+          .from("chat_messages")
+          .select("*")
+          .in("thread_id", threadIds);
+        exportData["chat_messages"] = msgs ?? [];
+      } else {
+        exportData["chat_messages"] = [];
+      }
+    } else {
+      exportData["chat_messages"] = [];
     }
 
     const { data: dsr, error: dsrErr } = await adminClient
@@ -104,7 +136,8 @@ serve(async (req) => {
       .single();
 
     if (dsrErr) {
-      return json({ code: "DSR_INSERT_FAILED", message: dsrErr.message }, 500);
+      console.error("[export-user-data] dsr insert:", dsrErr.message);
+      return json({ code: "DSR_INSERT_FAILED", message: "Impossibile creare richiesta di export." }, 500);
     }
 
     const filename = `${userId}/${dsr.id}.json`;
@@ -115,12 +148,13 @@ serve(async (req) => {
       .upload(filename, body, { contentType: "application/json", upsert: true });
 
     if (uploadErr) {
+      console.error("[export-user-data] upload error:", uploadErr.message);
       await adminClient.from("dsr_requests").update({
         status: "rejected",
         rejection_reason: `upload_failed: ${uploadErr.message}`,
         completed_at: new Date().toISOString(),
       }).eq("id", dsr.id);
-      return json({ code: "UPLOAD_FAILED", message: uploadErr.message }, 500);
+      return json({ code: "UPLOAD_FAILED", message: "Impossibile salvare il file di export." }, 500);
     }
 
     const { data: signed, error: signErr } = await adminClient.storage
@@ -128,7 +162,8 @@ serve(async (req) => {
       .createSignedUrl(filename, URL_EXPIRY_SECONDS);
 
     if (signErr || !signed) {
-      return json({ code: "SIGN_URL_FAILED", message: signErr?.message ?? "unknown" }, 500);
+      console.error("[export-user-data] signed url error:", signErr?.message);
+      return json({ code: "SIGN_URL_FAILED", message: "Impossibile generare il link di download." }, 500);
     }
 
     const expiresAt = new Date(Date.now() + URL_EXPIRY_SECONDS * 1000).toISOString();
@@ -147,7 +182,7 @@ serve(async (req) => {
       resource_type: "user_account",
       resource_id: userId,
       ip,
-      metadata: { dsr_id: dsr.id, tables: tables.map(t => t.name) },
+      metadata: { dsr_id: dsr.id, tables: EXPORTABLE_TABLES.map(t => t.name).concat("chat_messages") },
     });
 
     return json({
@@ -157,9 +192,10 @@ serve(async (req) => {
       expires_at: expiresAt,
     }, 200);
   } catch (e) {
+    const traceId = crypto.randomUUID();
     const msg = e instanceof Error ? e.message : String(e);
-    console.error("[export-user-data] fatal:", msg);
-    return json({ code: "INTERNAL", message: msg }, 500);
+    console.error("[export-user-data] fatal", { trace_id: traceId, message: msg });
+    return json({ code: "INTERNAL", message: "Errore interno.", trace_id: traceId }, 500);
   }
 });
 
