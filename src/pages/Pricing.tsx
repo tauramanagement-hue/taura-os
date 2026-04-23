@@ -223,7 +223,15 @@ const PricingPage = () => {
                   <div className="mt-3 text-[12px] text-destructive text-center">{errorMsg}</div>
                 )}
 
-                <div className="mt-8 grid grid-cols-1 md:grid-cols-3 gap-2">
+                <p className="mt-3 text-[11px] text-muted-foreground text-center leading-relaxed">
+                  Inviando l'email accetti i nostri{" "}
+                  <span onClick={() => navigate("/terms")} className="underline cursor-pointer hover:text-foreground transition-colors">Termini</span>{" "}
+                  e la{" "}
+                  <span onClick={() => navigate("/privacy")} className="underline cursor-pointer hover:text-foreground transition-colors">Privacy Policy</span>.
+                  Usiamo la tua email solo per contattarti sull'accesso — niente spam.
+                </p>
+
+                <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-2">
                   {values.map((v, i) => {
                     const Icon = v.icon;
                     return (
