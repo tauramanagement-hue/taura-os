@@ -12,7 +12,8 @@ export default {
     },
     extend: {
       fontFamily: {
-        sans: ["'DM Sans'", "system-ui", "sans-serif"],
+        sans: ["'Plus Jakarta Sans'", "system-ui", "sans-serif"],
+        display: ["'Bricolage Grotesque'", "system-ui", "sans-serif"],
         mono: ["'JetBrains Mono'", "'Fira Code'", "monospace"],
       },
       colors: {

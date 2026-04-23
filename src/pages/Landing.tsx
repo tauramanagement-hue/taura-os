@@ -44,7 +44,7 @@ const tintBg: Record<string, string> = {
 };
 
 const steps = [
-  { n: "01", title: "Carichi un contratto", desc: "PDF, DOCX, immagine — qualsiasi formato. L'AI legge e struttura in 45 secondi." },
+  { n: "01", title: "Carichi un contratto", desc: "PDF, DOCX, immagine - qualsiasi formato. L'AI legge e struttura in 45 secondi." },
   { n: "02", title: "Taura connette il roster", desc: "Clausole, deal, scadenze e conflitti appaiono automaticamente nel tuo Command Center." },
   { n: "03", title: "Chiudi più deal", desc: "Chiedi all'AI qualsiasi cosa. Genera Proof Package sponsor, previsioni revenue, report in 30 secondi." },
 ];
@@ -102,7 +102,7 @@ const LandingPage = () => {
   };
 
   useEffect(() => {
-    document.title = "Taura OS — L'ambiente operativo AI-native per agenzie";
+    document.title = "Taura OS - L'ambiente operativo AI-native per agenzie";
   }, []);
 
   return (
@@ -140,7 +140,7 @@ const LandingPage = () => {
 
       {/* HERO */}
       <section className="relative max-w-[1180px] mx-auto px-8 pt-24 pb-24">
-        {/* Text only — parallax scroll */}
+        {/* Text only - parallax scroll */}
         <motion.div style={{ y: heroY, opacity: heroOpacity }} className="relative z-10">
           <motion.div
             initial={{ opacity: 0, y: 24 }}
@@ -163,7 +163,7 @@ const LandingPage = () => {
             </h1>
 
             <p className="text-[17px] md:text-[19px] text-muted-foreground leading-relaxed max-w-[640px] mx-auto mb-10">
-              Contratti, talent, deal, campagne, sponsor, revenue — tutto in un unico sistema
+              Contratti, talent, deal, campagne, sponsor, revenue - tutto in un unico sistema
               dove l'AI non è una feature, è il modo in cui lavori.
             </p>
 
@@ -192,7 +192,7 @@ const LandingPage = () => {
           </motion.div>
         </motion.div>
 
-        {/* Hero mockup — fuori dal parallax, nessun transform scroll */}
+        {/* Hero mockup - fuori dal parallax, nessun transform scroll */}
         <motion.div
           initial={{ opacity: 0, y: 60, scale: 0.96 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -535,7 +535,7 @@ const LandingPage = () => {
               </h2>
               <p className="text-[14px] text-muted-foreground leading-relaxed">
                 Taura monitora contratti, campagne e roster in background.
-                Ogni evento rilevante — conflitto di clausola, scadenza imminente, deliverable in ritardo —
+                Ogni evento rilevante - conflitto di clausola, scadenza imminente, deliverable in ritardo -
                 genera un alert diretto con il contesto già pronto.
               </p>
             </div>
@@ -544,7 +544,7 @@ const LandingPage = () => {
               {[
                 { icon: "🛡", label: "Conflitto rilevato", msg: "Il deal Nike per Bianchi confligge con la clausola 4.2 di Adidas.", sev: "ALTO", color: "taura-red" },
                 { icon: "⏰", label: "Scadenza 14 giorni", msg: "Contratto Rossi/Puma scade il 5 mag. Rinnovo non ancora avviato.", sev: "MEDIO", color: "taura-orange" },
-                { icon: "📋", label: "Deliverable in ritardo", msg: "Campagna Nike — Story di M. Rossi non approvata (4 gg fa).", sev: "BASSO", color: "primary" },
+                { icon: "📋", label: "Deliverable in ritardo", msg: "Campagna Nike - Story di M. Rossi non approvata (4 gg fa).", sev: "BASSO", color: "primary" },
               ].map((n, i) => (
                 <motion.div
                   key={i}
@@ -594,7 +594,7 @@ const LandingPage = () => {
               </h2>
               <p className="text-[15px] text-muted-foreground leading-relaxed mb-6">
                 Agenzie che passano a Taura OS gestiscono il doppio del roster con lo stesso team.
-                Più contratti, più sponsor, più deal chiusi — meno errori, zero conflitti non rilevati.
+                Più contratti, più sponsor, più deal chiusi - meno errori, zero conflitti non rilevati.
               </p>
               <button
                 onClick={() => navigate("/pricing")}

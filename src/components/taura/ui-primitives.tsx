@@ -80,24 +80,11 @@ export const MiniChart = ({
 };
 
 export const TauraLogo = ({ size = 32, onClick }: { size?: number; onClick?: () => void }) => (
-  <div
+  <img
+    src="/logo-taura.png"
+    alt="Taura OS"
     onClick={onClick}
-    className="relative flex items-center justify-center rounded-xl cursor-pointer"
-    style={{
-      width: size,
-      height: size,
-      background: "linear-gradient(135deg, hsl(170, 100%, 45%), hsl(220, 100%, 65%))",
-    }}
-  >
-    <span className="font-black text-primary-foreground" style={{ fontSize: size * 0.45, letterSpacing: -1 }}>
-      T
-    </span>
-    <div
-      className="absolute inset-[-1px] rounded-xl -z-10"
-      style={{
-        background: "linear-gradient(135deg, hsl(170, 100%, 45%, 0.25), hsl(220, 100%, 65%, 0.25))",
-        filter: "blur(8px)",
-      }}
-    />
-  </div>
+    draggable={false}
+    style={{ width: size, height: size, cursor: onClick ? "pointer" : "default", flexShrink: 0 }}
+  />
 );

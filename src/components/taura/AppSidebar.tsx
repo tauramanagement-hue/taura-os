@@ -108,26 +108,13 @@ export const AppSidebar = () => {
         background: "hsl(var(--sidebar-background))",
       }}
     >
-      {/* Logo — dark: teal; light: inverted monogram (foreground/background) */}
-      <div
+      <img
+        src="/logo-taura.png"
+        alt="Taura OS"
+        draggable={false}
         onClick={() => navigate("/dashboard")}
-        style={{
-          width: 32,
-          height: 32,
-          borderRadius: 8,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          cursor: "pointer",
-          marginBottom: 20,
-          userSelect: "none",
-          background: theme === "dark" ? "hsl(var(--primary))" : "hsl(var(--foreground))",
-          color: theme === "dark" ? "hsl(var(--primary-foreground))" : "hsl(var(--background))",
-          flexShrink: 0,
-        }}
-      >
-        <span style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 14, lineHeight: 1 }}>T</span>
-      </div>
+        style={{ width: 36, height: 36, cursor: "pointer", marginBottom: 20, flexShrink: 0, userSelect: "none" }}
+      />
 
       {/* Nav items */}
       <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 2, width: "100%", padding: "0 8px" }}>
