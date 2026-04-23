@@ -145,10 +145,10 @@ export default function RoiCalculator() {
                 initial={{ opacity: 0.4, y: -4 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.2 }}
-                className="pb-0.5 text-[18px] font-semibold text-foreground/60 tabular-nums leading-none"
+                className="pb-0.5 text-[22px] md:text-[28px] font-bold text-foreground/50 tabular-nums leading-none"
               >
                 {fmtEur(totalYear / 12)}
-                <span className="text-[12px] font-medium text-muted-foreground"> / mese</span>
+                <span className="text-[13px] font-medium text-muted-foreground"> / mese</span>
               </motion.div>
             </div>
             <div className="mt-2 text-[11px] text-muted-foreground leading-relaxed">
