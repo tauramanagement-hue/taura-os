@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, useScroll, useTransform, AnimatePresence } from "framer-motion";
 import { TauraLogo, MiniChart } from "@/components/taura/ui-primitives";
@@ -83,12 +83,6 @@ const faqs = [
     a: "Siamo in beta privata. Le prime 5 agenzie che richiedono accesso entrano gratis per 6 mesi e bloccano il prezzo al rinnovo.",
   },
 ];
-
-const Counter = ({ value }: { value: string }) => {
-  const [shown, setShown] = useState(value);
-  useEffect(() => { setShown(value); }, [value]);
-  return <span>{shown}</span>;
-};
 
 const LandingPage = () => {
   const navigate = useNavigate();
@@ -254,29 +248,6 @@ const LandingPage = () => {
                 ⚠ Conflitto rilevato: il deal Puma per Marco Rossi confligge con la clausola 3.1 del contratto Adidas. Rischio penale stimato <strong>€15k</strong>.
               </div>
             </motion.div>
-          </div>
-        </motion.div>
-      </section>
-
-      {/* SOCIAL PROOF BAND */}
-      <section className="relative max-w-[1180px] mx-auto px-8 pb-10">
-        <motion.div
-          initial={{ opacity: 0 }}
-          whileInView={{ opacity: 1 }}
-          viewport={{ once: true, margin: "-60px" }}
-          transition={{ duration: 0.6, ease: EASE }}
-          className="flex flex-col md:flex-row items-center justify-center gap-4 md:gap-8 text-center"
-        >
-          <span className="text-[11px] font-semibold text-muted-foreground tracking-wider uppercase">
-            Già scelto da agenzie italiane in beta privata
-          </span>
-          <div className="hidden md:block h-px w-8 bg-border/60" />
-          <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-[12px] text-foreground/80 font-medium">
-            <span><strong className="text-primary font-bold"><Counter value="12" /></strong> agenzie</span>
-            <span className="text-border">·</span>
-            <span><strong className="text-primary font-bold"><Counter value="340" /></strong> atleti gestiti</span>
-            <span className="text-border">·</span>
-            <span><strong className="text-primary font-bold"><Counter value="2.1k" /></strong> contratti processati</span>
           </div>
         </motion.div>
       </section>
