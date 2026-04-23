@@ -11,6 +11,17 @@ interface PrivacyVersion {
 }
 
 const REQUIRED_DOCS = ["privacy_policy", "terms"] as const;
+const CACHE_KEY = "taura:consent-gate:v1";
+
+function getCached(): string[] {
+  try { return JSON.parse(localStorage.getItem(CACHE_KEY) || "[]"); } catch { return []; }
+}
+function addCached(versions: PrivacyVersion[]) {
+  try {
+    const keys = [...new Set([...getCached(), ...versions.map(v => `${v.doc_type}:${v.version}`)])];
+    localStorage.setItem(CACHE_KEY, JSON.stringify(keys));
+  } catch {}
+}
 
 const ConsentVersionGate = () => {
   const { user } = useAuth();
@@ -34,20 +45,25 @@ const ConsentVersionGate = () => {
 
       if (!versions || versions.length === 0) return;
 
+      const cached = getCached();
+      // Short-circuit: all versions already accepted locally
+      if (versions.every(v => cached.includes(`${v.doc_type}:${v.version}`))) return;
+
       const { data: consents } = await supabase
         .from("user_consents")
         .select("consent_type, version, granted, revoked_at")
         .eq("user_id", user!.id)
         .in("consent_type", [...REQUIRED_DOCS]);
 
-      const missingOrStale = versions.some((v) => {
+      const needsAccept = versions.some((v) => {
+        if (cached.includes(`${v.doc_type}:${v.version}`)) return false;
         const match = consents?.find((c) =>
           c.consent_type === v.doc_type && c.version === v.version && c.granted && !c.revoked_at,
         );
         return !match;
       });
 
-      if (missingOrStale) {
+      if (needsAccept) {
         setCurrentVersions(versions);
         setNeedsConsent(true);
       }
@@ -58,6 +74,8 @@ const ConsentVersionGate = () => {
 
   const accept = async () => {
     setSubmitting(true);
+    addCached(currentVersions);
+    setNeedsConsent(false);
     try {
       await supabase.functions.invoke("consent-webhook", {
         body: {
@@ -69,7 +87,6 @@ const ConsentVersionGate = () => {
           })),
         },
       });
-      setNeedsConsent(false);
     } catch (e) {
       console.error("[consent-gate] accept failed:", e);
     } finally {
