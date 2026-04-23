@@ -3,6 +3,9 @@ import { useNavigate } from "react-router-dom";
 import { motion, useScroll, useTransform, AnimatePresence } from "framer-motion";
 import { TauraLogo, MiniChart } from "@/components/taura/ui-primitives";
 import PlansGrid, { type Plan } from "@/components/taura/PlansGrid";
+import HowItWorksStage from "@/components/taura/HowItWorksStage";
+import InteractiveDemo from "@/components/taura/InteractiveDemo";
+import RoiCalculator from "@/components/taura/RoiCalculator";
 import {
   FileText,
   ShieldAlert,
@@ -21,6 +24,10 @@ import {
   Check,
   Upload,
   Send,
+  Shield,
+  Lock,
+  Server,
+  X,
 } from "lucide-react";
 
 const EASE = [0.22, 1, 0.36, 1] as const;
@@ -42,12 +49,6 @@ const tintBg: Record<string, string> = {
   orange: "bg-taura-orange/10 text-taura-orange",
   green: "bg-taura-green/10 text-taura-green",
 };
-
-const steps = [
-  { n: "01", title: "Carichi un contratto", desc: "PDF, DOCX, immagine - qualsiasi formato. L'AI legge e struttura in 45 secondi." },
-  { n: "02", title: "Taura connette il roster", desc: "Clausole, deal, scadenze e conflitti appaiono automaticamente nel tuo Command Center." },
-  { n: "03", title: "Chiudi più deal", desc: "Chiedi all'AI qualsiasi cosa. Genera Proof Package sponsor, previsioni revenue, report in 30 secondi." },
-];
 
 const roiStats = [
   { k: "45s", label: "per analizzare un contratto", vs: "vs 4 ore a mano" },
@@ -184,10 +185,22 @@ const LandingPage = () => {
               </button>
             </div>
 
-            <div className="mt-8 flex gap-6 justify-center text-[11px] text-muted-foreground">
-              <span className="flex items-center gap-1.5"><span className="w-1 h-1 rounded-full bg-taura-green" />Dati crittografati</span>
-              <span className="flex items-center gap-1.5"><span className="w-1 h-1 rounded-full bg-taura-green" />Setup 90s</span>
-              <span className="flex items-center gap-1.5"><span className="w-1 h-1 rounded-full bg-taura-green" />Zero lock-in</span>
+            <div className="mt-8 flex flex-wrap gap-x-5 gap-y-2 justify-center">
+              {[
+                { Icon: Shield, label: "GDPR compliant", tip: "Dati gestiti secondo Regolamento UE 2016/679" },
+                { Icon: Lock, label: "AES-256 at-rest", tip: "Storage crittografato e Row-Level Security per agenzia" },
+                { Icon: Server, label: "Hosted in EU", tip: "Infrastruttura Supabase, data residency europea" },
+                { Icon: Zap, label: "Setup 90s", tip: "Dal signup al primo contratto caricato" },
+              ].map((b, i) => (
+                <span
+                  key={i}
+                  title={b.tip}
+                  className="group flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors cursor-default"
+                >
+                  <b.Icon className="w-3 h-3 text-taura-green/80 group-hover:text-taura-green transition-colors" />
+                  {b.label}
+                </span>
+              ))}
             </div>
           </motion.div>
         </motion.div>
@@ -245,6 +258,29 @@ const LandingPage = () => {
         </motion.div>
       </section>
 
+      {/* SOCIAL PROOF BAND */}
+      <section className="relative max-w-[1180px] mx-auto px-8 pb-10">
+        <motion.div
+          initial={{ opacity: 0 }}
+          whileInView={{ opacity: 1 }}
+          viewport={{ once: true, margin: "-60px" }}
+          transition={{ duration: 0.6, ease: EASE }}
+          className="flex flex-col md:flex-row items-center justify-center gap-4 md:gap-8 text-center"
+        >
+          <span className="text-[11px] font-semibold text-muted-foreground tracking-wider uppercase">
+            Già scelto da agenzie italiane in beta privata
+          </span>
+          <div className="hidden md:block h-px w-8 bg-border/60" />
+          <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-[12px] text-foreground/80 font-medium">
+            <span><strong className="text-primary font-bold"><Counter value="12" /></strong> agenzie</span>
+            <span className="text-border">·</span>
+            <span><strong className="text-primary font-bold"><Counter value="340" /></strong> atleti gestiti</span>
+            <span className="text-border">·</span>
+            <span><strong className="text-primary font-bold"><Counter value="2.1k" /></strong> contratti processati</span>
+          </div>
+        </motion.div>
+      </section>
+
       {/* STATS STRIP */}
       <section className="relative max-w-[1180px] mx-auto px-8 pb-24">
         <motion.div
@@ -280,38 +316,19 @@ const LandingPage = () => {
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true, margin: "-100px" }}
           transition={{ duration: 0.6, ease: EASE }}
-          className="text-center mb-16"
+          className="text-center mb-14"
         >
           <div className="text-[11px] font-bold text-primary tracking-[0.2em] uppercase mb-3">Come funziona</div>
           <h2 className="text-[40px] md:text-[52px] font-bold tracking-[-0.025em] leading-[1.05]">
             Tre passi per<br />
             ridurre il tuo carico operativo.
           </h2>
+          <p className="text-[14px] text-muted-foreground mt-4 hidden md:block">
+            Passa il mouse su uno step per vederlo in azione.
+          </p>
         </motion.div>
 
-        <div className="grid md:grid-cols-3 gap-5">
-          {steps.map((s, i) => (
-            <motion.div
-              key={i}
-              initial={{ opacity: 0, y: 30 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true, margin: "-80px" }}
-              transition={{ duration: 0.6, delay: i * 0.12, ease: EASE }}
-              className="group relative bg-card/60 backdrop-blur-xl rounded-2xl p-8 border border-border/50 hover:border-primary/40 transition-all duration-300 hover:-translate-y-1"
-            >
-              <div className="absolute top-6 right-6 text-[56px] font-bold text-foreground/5 tracking-tighter leading-none">
-                {s.n}
-              </div>
-              <div className="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center mb-6 group-hover:bg-primary/20 transition-colors">
-                {i === 0 && <FileText className="w-5 h-5" />}
-                {i === 1 && <Zap className="w-5 h-5" />}
-                {i === 2 && <TrendingUp className="w-5 h-5" />}
-              </div>
-              <h3 className="text-[18px] font-semibold tracking-tight mb-2">{s.title}</h3>
-              <p className="text-[13px] text-muted-foreground leading-relaxed">{s.desc}</p>
-            </motion.div>
-          ))}
-        </div>
+        <HowItWorksStage />
       </section>
 
       {/* FEATURES */}
@@ -350,6 +367,134 @@ const LandingPage = () => {
               </motion.div>
             );
           })}
+        </div>
+      </section>
+
+      {/* PRODUCT LANDSCAPE */}
+      <section className="relative max-w-[1180px] mx-auto px-8 py-24">
+        <motion.div
+          initial={{ opacity: 0, y: 16 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true, margin: "-100px" }}
+          transition={{ duration: 0.6, ease: EASE }}
+          className="text-center mb-14"
+        >
+          <div className="text-[11px] font-bold text-primary tracking-[0.2em] uppercase mb-3">Demo interattiva</div>
+          <h2 className="text-[40px] md:text-[52px] font-bold tracking-[-0.025em] leading-[1.05]">
+            Provalo ora,<br />
+            senza <span className="text-primary">registrarti</span>.
+          </h2>
+          <p className="text-[15px] text-muted-foreground max-w-[640px] mx-auto mt-4">
+            Naviga dashboard, campagne, roster e calendario. E chiedi a Taura AI quello che vuoi sapere sul prodotto, risponde davvero.
+          </p>
+        </motion.div>
+
+        <InteractiveDemo />
+      </section>
+
+      {/* PRIMA / DOPO */}
+      <section className="relative max-w-[1180px] mx-auto px-8 py-24">
+        <motion.div
+          initial={{ opacity: 0, y: 16 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true, margin: "-100px" }}
+          transition={{ duration: 0.6, ease: EASE }}
+          className="text-center mb-12"
+        >
+          <div className="text-[11px] font-bold text-primary tracking-[0.2em] uppercase mb-3">Il cambio</div>
+          <h2 className="text-[40px] md:text-[52px] font-bold tracking-[-0.025em] leading-[1.05]">
+            La tua settimana,<br />
+            prima e dopo <span className="text-primary">Taura</span>.
+          </h2>
+        </motion.div>
+
+        <div className="grid md:grid-cols-2 gap-5">
+          <motion.div
+            initial={{ opacity: 0, x: -20 }}
+            whileInView={{ opacity: 1, x: 0 }}
+            viewport={{ once: true, margin: "-80px" }}
+            transition={{ duration: 0.6, ease: EASE }}
+            className="relative rounded-2xl border border-border/40 bg-muted/20 p-8"
+          >
+            <div className="inline-flex items-center gap-2 bg-background/60 border border-border/50 text-muted-foreground text-[10px] font-bold tracking-[0.15em] uppercase px-3 py-1.5 rounded-full mb-6">
+              Senza Taura
+            </div>
+            <ul className="space-y-4">
+              {[
+                "7 tool diversi: Excel, Drive, DocuSign, Notion, Slack, Calendly, Airtable",
+                "12h/settimana di data entry manuale e copia-incolla",
+                "Contratti persi in cartelle Drive, ricerca clausole a mano",
+                "Conflitti scoperti solo quando arriva la penale (€10-50k)",
+                "Brief dei brand letti manualmente, risposta al talent in 3 giorni",
+                "Report sponsor costruiti la notte prima del meeting",
+              ].map((t, i) => (
+                <motion.li
+                  key={i}
+                  initial={{ opacity: 0, x: -10 }}
+                  whileInView={{ opacity: 1, x: 0 }}
+                  viewport={{ once: true }}
+                  transition={{ duration: 0.35, delay: 0.1 + i * 0.06 }}
+                  className="flex items-start gap-3"
+                >
+                  <span className="w-5 h-5 rounded-full bg-taura-red/15 border border-taura-red/25 flex items-center justify-center shrink-0 mt-0.5">
+                    <X className="w-3 h-3 text-taura-red" />
+                  </span>
+                  <span className="text-[13.5px] text-muted-foreground leading-relaxed">{t}</span>
+                </motion.li>
+              ))}
+            </ul>
+            <div className="mt-7 pt-5 border-t border-border/40 text-[12px] text-muted-foreground">
+              <strong className="text-foreground">Risultato:</strong> 12h/settimana persi, rischio penali, occasioni mancate.
+            </div>
+          </motion.div>
+
+          <motion.div
+            initial={{ opacity: 0, x: 20 }}
+            whileInView={{ opacity: 1, x: 0 }}
+            viewport={{ once: true, margin: "-80px" }}
+            transition={{ duration: 0.6, ease: EASE }}
+            className="relative rounded-2xl border border-primary/30 bg-primary/5 p-8 overflow-hidden"
+          >
+            <div
+              className="absolute inset-0 pointer-events-none opacity-50"
+              style={{
+                background:
+                  "radial-gradient(ellipse at top right, hsl(var(--primary) / 0.10) 0%, transparent 60%)",
+              }}
+            />
+            <div className="relative">
+              <div className="inline-flex items-center gap-2 bg-primary/15 border border-primary/30 text-primary text-[10px] font-bold tracking-[0.15em] uppercase px-3 py-1.5 rounded-full mb-6">
+                Con Taura
+              </div>
+              <ul className="space-y-4">
+                {[
+                  "Un sistema, un login — roster, contratti, deal, campagne, revenue",
+                  "90s setup, l'AI fa il data entry al posto tuo",
+                  "Tutti i contratti cercabili full-text in 1 click",
+                  "Conflitti rilevati in automatico prima che diventino penali",
+                  "Brief → deliverable → messaggi talent in 60 secondi",
+                  "Proof Package sponsor generato in 30 secondi",
+                ].map((t, i) => (
+                  <motion.li
+                    key={i}
+                    initial={{ opacity: 0, x: 10 }}
+                    whileInView={{ opacity: 1, x: 0 }}
+                    viewport={{ once: true }}
+                    transition={{ duration: 0.35, delay: 0.1 + i * 0.06 }}
+                    className="flex items-start gap-3"
+                  >
+                    <span className="w-5 h-5 rounded-full bg-taura-green/15 border border-taura-green/30 flex items-center justify-center shrink-0 mt-0.5">
+                      <Check className="w-3 h-3 text-taura-green" />
+                    </span>
+                    <span className="text-[13.5px] text-foreground leading-relaxed">{t}</span>
+                  </motion.li>
+                ))}
+              </ul>
+              <div className="mt-7 pt-5 border-t border-primary/20 text-[12px] text-foreground">
+                <strong>Risultato:</strong> 12h/settimana recuperate, zero penali, roster 2x con stesso team.
+              </div>
+            </div>
+          </motion.div>
         </div>
       </section>
 
@@ -530,8 +675,7 @@ const LandingPage = () => {
                 <Bell className="w-3 h-3" /> Notifiche intelligenti
               </div>
               <h2 className="text-[30px] md:text-[38px] font-bold tracking-[-0.025em] leading-[1.08] mb-4">
-                Nessuna scadenza,<br />nessun conflitto, nessun alert<br />
-                <span className="text-primary">ti sfugge.</span>
+                Nessuna scadenza,<br />nessun conflitto, nessun alert <span className="text-primary">ti sfugge.</span>
               </h2>
               <p className="text-[14px] text-muted-foreground leading-relaxed">
                 Taura monitora contratti, campagne e roster in background.
@@ -636,6 +780,8 @@ const LandingPage = () => {
             </div>
           </div>
         </motion.div>
+
+        <RoiCalculator />
       </section>
 
       {/* TESTIMONIAL */}

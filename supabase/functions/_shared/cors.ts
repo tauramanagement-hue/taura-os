@@ -5,8 +5,10 @@ const ALLOWED_ORIGINS = [
   "https://www.tauraos.com",
   "https://app.tauraos.com",
   "http://localhost:8080",
+  "http://localhost:8081",
   "http://localhost:5173",
   "http://127.0.0.1:8080",
+  "http://127.0.0.1:8081",
 ];
 
 const VERCEL_PREVIEW = /^https:\/\/[a-z0-9-]+\.vercel\.app$/;
