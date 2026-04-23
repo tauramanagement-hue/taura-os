@@ -135,9 +135,21 @@ export default function RoiCalculator() {
             <div className="text-[10px] font-bold text-muted-foreground tracking-wider uppercase mb-1">
               Impatto economico totale
             </div>
-            <div className="text-[32px] md:text-[40px] font-bold tracking-tight text-primary leading-none tabular-nums">
-              {fmtEur(totalYear)}
-              <span className="text-[16px] text-muted-foreground font-semibold"> / anno</span>
+            <div className="flex items-end gap-4 flex-wrap">
+              <div className="text-[32px] md:text-[40px] font-bold tracking-tight text-primary leading-none tabular-nums">
+                {fmtEur(totalYear)}
+                <span className="text-[16px] text-muted-foreground font-semibold"> / anno</span>
+              </div>
+              <motion.div
+                key={totalYear}
+                initial={{ opacity: 0.4, y: -4 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.2 }}
+                className="pb-0.5 text-[18px] font-semibold text-foreground/60 tabular-nums leading-none"
+              >
+                {fmtEur(totalYear / 12)}
+                <span className="text-[12px] font-medium text-muted-foreground"> / mese</span>
+              </motion.div>
             </div>
             <div className="mt-2 text-[11px] text-muted-foreground leading-relaxed">
               Costo operativo evitato + errori prevenuti + valore generato dal tempo riallocato su attività ad alto margine.
