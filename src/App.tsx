@@ -59,6 +59,7 @@ const App = () => (
 
             {/* Public routes (no guard) */}
             <Route path="/landing" element={<Landing />} />
+            <Route path="/beta" element={<Landing />} />
             <Route path="/auth" element={<Login />} />
             <Route path="/login" element={<Login />} />
             <Route path="/pricing" element={<Pricing />} />
