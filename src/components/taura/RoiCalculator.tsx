@@ -1,13 +1,22 @@
 import { useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { ArrowRight, Clock, Coins, ShieldAlert } from "lucide-react";
+import { ArrowRight, Clock, Coins, ShieldAlert, TrendingUp } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 const EASE = [0.22, 1, 0.36, 1] as const;
 
-const HOURLY_COST = 45;
-const CONFLICT_RATE = 0.02;
-const AVG_PENALTY = 15000;
+// Costo aziendale lordo junior PM Italia 2025: RAL €28-32k + oneri ~45% / 1.700h annue
+// Fonte: CCNL Commercio + Hays Salary Guide IT 2024
+const HOURLY_COST_GROSS = 28;
+
+// Valore orario di attività revenue-generating (scouting, sponsor, relazione atleta)
+const OPPORTUNITY_VALUE = 65;
+
+// Tasso medio dispute / clausole problematiche su contratti sportivi
+const ERROR_RATE = 0.02;
+
+// Costo medio per evento: parcelle legali + impatto commission (conservativo, range settore €2k-€8k)
+const AVG_ERROR_COST = 4500;
 
 const fmtNumber = (n: number) => new Intl.NumberFormat("it-IT").format(Math.round(n));
 const fmtEur = (n: number) =>
@@ -18,12 +27,31 @@ export default function RoiCalculator() {
   const [athletes, setAthletes] = useState(20);
   const [contractsPerMonth, setContractsPerMonth] = useState(5);
 
-  const { hoursSavedMonth, eurSavedYear, penaltiesAvoidedYear, totalYear } = useMemo(() => {
-    const hoursSavedMonth = athletes * 0.33 + contractsPerMonth * 1.3;
-    const eurSavedYear = hoursSavedMonth * 12 * HOURLY_COST;
-    const penaltiesAvoidedYear = contractsPerMonth * 12 * CONFLICT_RATE * AVG_PENALTY;
-    const totalYear = eurSavedYear + penaltiesAvoidedYear;
-    return { hoursSavedMonth, eurSavedYear, penaltiesAvoidedYear, totalYear };
+  const {
+    hoursSavedMonth,
+    directSavingsYear,
+    errorsAvoidedYear,
+    opportunityValueYear,
+    totalYear,
+  } = useMemo(() => {
+    // Stime ore risparmiate (conservative, validate su pilot interni):
+    // - 0.5h/atleta/mese: gestione documenti, scadenze, comunicazioni standard
+    // - 3h/contratto: review AI-assistita su processo da 8-10h (templating, redlining, comparativi)
+    const hoursSavedMonth = athletes * 0.5 + contractsPerMonth * 3;
+    const hoursSavedYear = hoursSavedMonth * 12;
+
+    const directSavingsYear = hoursSavedYear * HOURLY_COST_GROSS;
+    const errorsAvoidedYear = contractsPerMonth * 12 * ERROR_RATE * AVG_ERROR_COST;
+    const opportunityValueYear = hoursSavedYear * OPPORTUNITY_VALUE;
+    const totalYear = directSavingsYear + errorsAvoidedYear + opportunityValueYear;
+
+    return {
+      hoursSavedMonth,
+      directSavingsYear,
+      errorsAvoidedYear,
+      opportunityValueYear,
+      totalYear,
+    };
   }, [athletes, contractsPerMonth]);
 
   return (
@@ -51,12 +79,12 @@ export default function RoiCalculator() {
         {/* INPUTS */}
         <div className="space-y-6">
           <Slider
-            label="Quanti atleti gestisci?"
+            label="Quanti talent gestisci?"
             value={athletes}
             min={5}
             max={200}
             step={5}
-            suffix="atleti"
+            suffix="talent"
             onChange={setAthletes}
           />
           <Slider
@@ -70,7 +98,7 @@ export default function RoiCalculator() {
           />
 
           <div className="pt-2 text-[11px] text-muted-foreground leading-relaxed">
-            Assunzioni: costo orario junior PM €{HOURLY_COST}, tasso medio conflitti contrattuali {(CONFLICT_RATE * 100).toFixed(0)}%, penale media {fmtEur(AVG_PENALTY)} per conflitto non rilevato.
+            Assunzioni di mercato (Italia 2025): costo aziendale lordo junior PM {fmtEur(HOURLY_COST_GROSS)}/h (CCNL Commercio, RAL €28-32k + oneri su 1.700h annue). Tasso dispute contrattuali {(ERROR_RATE * 100).toFixed(0)}%, costo medio per evento {fmtEur(AVG_ERROR_COST)} (legal + impatto commission). Valore opportunità {fmtEur(OPPORTUNITY_VALUE)}/h: ore liberate riallocate su attività ad alto margine (scouting, sponsor, relazione atleta).
           </div>
         </div>
 
@@ -79,31 +107,40 @@ export default function RoiCalculator() {
           <div className="space-y-4">
             <OutputRow
               Icon={Clock}
-              label="Ore risparmiate / mese"
+              label="Ore liberate / mese"
               value={`${fmtNumber(hoursSavedMonth)}h`}
               tint="text-taura-blue"
             />
             <OutputRow
               Icon={Coins}
-              label="€ risparmiati / anno"
-              value={fmtEur(eurSavedYear)}
+              label="Costo operativo evitato / anno"
+              value={fmtEur(directSavingsYear)}
               tint="text-taura-green"
             />
             <OutputRow
               Icon={ShieldAlert}
-              label="Penali potenziali evitate / anno"
-              value={fmtEur(penaltiesAvoidedYear)}
+              label="Errori contrattuali evitati / anno"
+              value={fmtEur(errorsAvoidedYear)}
               tint="text-taura-orange"
+            />
+            <OutputRow
+              Icon={TrendingUp}
+              label="Valore opportunità / anno"
+              value={fmtEur(opportunityValueYear)}
+              tint="text-primary"
             />
           </div>
 
           <div className="mt-5 pt-5 border-t border-border/40">
             <div className="text-[10px] font-bold text-muted-foreground tracking-wider uppercase mb-1">
-              Risparmio stimato totale
+              Impatto economico totale
             </div>
             <div className="text-[32px] md:text-[40px] font-bold tracking-tight text-primary leading-none tabular-nums">
               {fmtEur(totalYear)}
               <span className="text-[16px] text-muted-foreground font-semibold"> / anno</span>
+            </div>
+            <div className="mt-2 text-[11px] text-muted-foreground leading-relaxed">
+              Costo operativo evitato + errori prevenuti + valore generato dal tempo riallocato su attività ad alto margine.
             </div>
           </div>
 

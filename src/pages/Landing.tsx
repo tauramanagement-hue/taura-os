@@ -8,16 +8,13 @@ import InteractiveDemo from "@/components/taura/InteractiveDemo";
 import RoiCalculator from "@/components/taura/RoiCalculator";
 import {
   FileText,
-  ShieldAlert,
   Sparkles,
   Users,
   BarChart3,
   MessageSquare,
   ChevronDown,
   ArrowRight,
-  Clock,
   Zap,
-  TrendingUp,
   Megaphone,
   Bell,
   Bot,
@@ -690,68 +687,6 @@ const LandingPage = () => {
 
       {/* ROI SECTION */}
       <section id="roi" className="relative max-w-[1180px] mx-auto px-8 py-24">
-        <motion.div
-          initial={{ opacity: 0, y: 16 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true, margin: "-100px" }}
-          transition={{ duration: 0.6, ease: EASE }}
-          className="bg-gradient-to-br from-card/80 to-card/40 backdrop-blur-xl rounded-3xl border border-border/50 p-10 md:p-16 relative overflow-hidden"
-        >
-          <div className="absolute top-0 right-0 w-[400px] h-[400px] rounded-full blur-3xl opacity-20 pointer-events-none"
-            style={{ background: "radial-gradient(circle, hsl(var(--primary)) 0%, transparent 70%)" }} />
-
-          <div className="relative grid md:grid-cols-2 gap-10 items-center">
-            <div>
-              <div className="text-[11px] font-bold text-primary tracking-[0.2em] uppercase mb-3">Il ROI in numeri</div>
-              <h2 className="text-[36px] md:text-[44px] font-bold tracking-[-0.025em] leading-[1.08] mb-5">
-                Risparmia <span className="text-primary">ore</span>,<br />
-                moltiplica <span className="text-primary">ricavi</span>.
-              </h2>
-              <p className="text-[15px] text-muted-foreground leading-relaxed mb-6">
-                Agenzie che passano a Taura OS gestiscono il doppio del roster con lo stesso team.
-                Più contratti, più sponsor, più deal chiusi - meno errori, zero conflitti non rilevati.
-              </p>
-              <button
-                onClick={() => navigate("/pricing")}
-                className="inline-flex items-center gap-2 text-[13px] font-semibold text-primary hover:gap-3 transition-all"
-              >
-                Calcola il tuo risparmio <ArrowRight className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="space-y-3">
-              {[
-                { icon: Clock, big: "−75%", label: "tempo per contratto", detail: "Da 4 ore a 45 secondi" },
-                { icon: ShieldAlert, big: "100%", label: "conflitti rilevati", detail: "Prima che diventino penali" },
-                { icon: TrendingUp, big: "+2×", label: "deal chiusi per mese", detail: "Meno lavoro manuale, più strategia" },
-              ].map((r, i) => {
-                const Icon = r.icon;
-                return (
-                  <motion.div
-                    key={i}
-                    initial={{ opacity: 0, x: 20 }}
-                    whileInView={{ opacity: 1, x: 0 }}
-                    viewport={{ once: true, margin: "-80px" }}
-                    transition={{ duration: 0.5, delay: 0.1 + i * 0.1, ease: EASE }}
-                    className="flex items-center gap-4 p-5 bg-card/60 backdrop-blur rounded-2xl border border-border/50"
-                  >
-                    <div className="w-11 h-11 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
-                      <Icon className="w-5 h-5" />
-                    </div>
-                    <div className="flex-1">
-                      <div className="flex items-baseline gap-2">
-                        <span className="text-[28px] font-bold text-foreground tracking-tight leading-none">{r.big}</span>
-                        <span className="text-[12px] font-semibold text-foreground">{r.label}</span>
-                      </div>
-                      <div className="text-[11px] text-muted-foreground mt-0.5">{r.detail}</div>
-                    </div>
-                  </motion.div>
-                );
-              })}
-            </div>
-          </div>
-        </motion.div>
-
         <RoiCalculator />
       </section>
 
