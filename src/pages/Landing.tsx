@@ -271,7 +271,7 @@ const LandingPage = () => {
               className="bg-card/60 backdrop-blur p-6 md:p-8 text-center"
             >
               <div className="text-[38px] md:text-[44px] font-bold tracking-tight bg-gradient-to-b from-foreground to-foreground/60 bg-clip-text text-transparent">
-                <Counter value={s.k} />
+                {s.k}
               </div>
               <div className="text-[12px] font-semibold text-foreground mt-1">{s.label}</div>
               <div className="text-[11px] text-muted-foreground mt-0.5">{s.vs}</div>
