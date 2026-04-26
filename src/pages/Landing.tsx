@@ -94,7 +94,7 @@ const LandingPage = () => {
   };
 
   useEffect(() => {
-    document.title = "Taura OS - L'ambiente operativo AI-native per agenzie";
+    document.title = "Taura OS - Gestionale AI per Agenzie Talent e Creator";
   }, []);
 
   return (
@@ -151,7 +151,7 @@ const LandingPage = () => {
                 AI-native
               </span>{" "}
               per agenzie<br />
-              di talent e sport.
+              talent e creator.
             </h1>
 
             <p className="text-[17px] md:text-[19px] text-muted-foreground leading-relaxed max-w-[640px] mx-auto mb-10">
@@ -436,7 +436,7 @@ const LandingPage = () => {
               </div>
               <ul className="space-y-4">
                 {[
-                  "Un sistema, un login — roster, contratti, deal, campagne, revenue",
+                  "Un sistema, un login - roster, contratti, deal, campagne, revenue",
                   "90s setup, l'AI fa il data entry al posto tuo",
                   "Tutti i contratti cercabili full-text in 1 click",
                   "Conflitti rilevati in automatico prima che diventino penali",
@@ -697,18 +697,37 @@ const LandingPage = () => {
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true, margin: "-80px" }}
           transition={{ duration: 0.6, ease: EASE }}
-          className="max-w-[820px] mx-auto text-center"
+          className="max-w-[960px] mx-auto"
         >
-          <div className="text-[11px] font-bold text-primary tracking-[0.2em] uppercase mb-5">Costruito con chi lavora sul campo</div>
-          <p className="text-[28px] md:text-[36px] font-semibold leading-[1.25] tracking-[-0.02em] text-foreground/90">
-            "Gestisco 30 talent su tre verticali diverse.
-            Taura mi fa risparmiare tre giornate a settimana solo sui contratti."
-          </p>
-          <div className="mt-8 inline-flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary to-taura-blue" />
-            <div className="text-left">
-              <div className="text-[13px] font-semibold">Early beta tester</div>
-              <div className="text-[11px] text-muted-foreground">Agenzia sport & talent, Milano</div>
+          <div className="text-[11px] font-bold text-primary tracking-[0.2em] uppercase mb-10 text-center">Costruito con chi lavora sul campo</div>
+
+          <div className="grid md:grid-cols-2 gap-5">
+            <div className="rounded-2xl border border-border/50 bg-card/60 backdrop-blur p-7 md:p-8">
+              <p className="text-[17px] md:text-[19px] font-medium leading-[1.45] tracking-[-0.01em] text-foreground/90">
+                "Gestisco 22 creator su lifestyle. Taura mi fa risparmiare 2 giorni a settimana
+                solo sui proof package."
+              </p>
+              <div className="mt-6 flex items-center gap-3">
+                <div className="w-9 h-9 rounded-full bg-gradient-to-br from-primary to-taura-blue" />
+                <div>
+                  <div className="text-[12px] font-semibold">Partner beta</div>
+                  <div className="text-[11px] text-muted-foreground">Agenzia talent, 22 creator - lifestyle vertical</div>
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-border/50 bg-card/60 backdrop-blur p-7 md:p-8">
+              <p className="text-[17px] md:text-[19px] font-medium leading-[1.45] tracking-[-0.01em] text-foreground/90">
+                "3 deal Nike diversi in 4 mesi su creator diversi. Prima rischiavamo conflict
+                senza saperlo. Con Taura zero."
+              </p>
+              <div className="mt-6 flex items-center gap-3">
+                <div className="w-9 h-9 rounded-full bg-gradient-to-br from-taura-purple to-taura-pink" />
+                <div>
+                  <div className="text-[12px] font-semibold">Partner beta</div>
+                  <div className="text-[11px] text-muted-foreground">Agenzia talent, 18 creator - multi-vertical</div>
+                </div>
+              </div>
             </div>
           </div>
         </motion.div>
